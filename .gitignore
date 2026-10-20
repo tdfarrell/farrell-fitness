@@ -1,0 +1,9 @@
+# Secrets and local data never go in the repo
+api/config.php
+data/*
+!data/.htaccess
+*.sqlite
+*.sqlite-*
+.DS_Store
+node_modules/
+tests/screenshots/

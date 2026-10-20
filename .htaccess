@@ -1,0 +1,31 @@
+Options -Indexes
+DirectoryIndex index.html index.php
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Always use HTTPS (needed for the installable app, service worker and cookies).
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Block private folders and repo files from the web.
+  RewriteRule ^(data|cron|tests|\.git|\.github)(/|$) - [F,L]
+  # Hidden files, except .well-known (needed for SSL certificate renewal).
+  RewriteRule (^|/)\.(?!well-known) - [F,L]
+  RewriteRule \.(md|sqlite|sh|lock|json\.dist)$ - [F,L]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "same-origin"
+  Header always set X-Frame-Options "DENY"
+  # Code revalidates on every load (cheap with ETags), so a deploy shows up right away.
+  <FilesMatch "\.(html|css|js|webmanifest)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "\.(png|svg|ico|woff2)$">
+    Header set Cache-Control "public, max-age=604800"
+  </FilesMatch>
+</IfModule>
+
+AddType application/manifest+json .webmanifest
