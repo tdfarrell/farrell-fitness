@@ -19,8 +19,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - uses: shivammathur/setup-php@v2
@@ -37,11 +37,19 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      FTP_SERVER: ${{ secrets.FTP_SERVER }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check deploy settings
+        if: env.FTP_SERVER == ''
+        run: echo "::notice::Deploy skipped. Add the FTP_SERVER, FTP_USERNAME, FTP_PASSWORD and FTP_SERVER_DIR repository secrets to turn on automatic deploys."
+      - uses: actions/checkout@v5
+        if: env.FTP_SERVER != ''
       - name: Stamp the build so installed apps pick up the new version
+        if: env.FTP_SERVER != ''
         run: sed -i "s/__BUILD__/${GITHUB_SHA::8}/" sw.js
       - name: Upload changed files
+        if: env.FTP_SERVER != ''
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
