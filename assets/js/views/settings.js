@@ -107,7 +107,7 @@ export async function render(root) {
               h('button', { class: 'btn sm', onclick: async (e) => { e.target.disabled = true; try { const r = await post('whoop/sync', {}); toast(`Synced ${r.days} days`); markStale(); } catch (err) { toast(err.message, 'error'); } e.target.disabled = false; } }, 'Sync now'),
               h('button', { class: 'btn sm', onclick: async (e) => { e.target.disabled = true; try { const r = await post('whoop/sync', { days: 365 }); toast(`Synced ${r.days} days`); markStale(); } catch (err) { toast(err.message, 'error'); } e.target.disabled = false; } }, 'Re-sync last year'),
               h('button', { class: 'btn sm danger', onclick: async () => {
-                if (!(await confirmSheet('Disconnect WHOOP?', 'New data stops coming in. Data already synced stays.', 'Disconnect'))) return;
+                if (!(await confirmSheet('Disconnect WHOOP?', 'This revokes access and deletes all WHOOP data stored in this app. Your food, weight and training logs stay.', 'Disconnect and delete'))) return;
                 await post('whoop/disconnect', {}); markStale(); toast('WHOOP disconnected'); render(root);
               } }, 'Disconnect')))
         : h('div', { class: 'stack' },
@@ -150,5 +150,6 @@ export async function render(root) {
             const a = h('a', { href: URL.createObjectURL(blob), download: `farrell-fitness-${new Date().toISOString().slice(0, 10)}.json` });
             document.body.append(a); a.click(); a.remove();
           } }, 'Download all my data'),
-          h('button', { class: 'btn sm danger', onclick: async () => { await post('auth/logout', {}); location.hash = '#/login'; location.reload(); } }, 'Sign out')))));
+          h('button', { class: 'btn sm danger', onclick: async () => { await post('auth/logout', {}); location.hash = '#/login'; location.reload(); } }, 'Sign out')),
+        h('a', { href: 'privacy.html', class: 'small' }, 'Privacy policy'))));
 }

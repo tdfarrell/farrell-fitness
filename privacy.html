@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy | Farrell Fitness</title>
+<meta name="description" content="How Farrell Fitness collects, uses and protects your data, including data from WHOOP.">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<style>
+  @font-face { font-family: 'Barlow'; font-weight: 400; font-display: swap; src: url(assets/fonts/barlow-latin-400-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'Barlow'; font-weight: 600; font-display: swap; src: url(assets/fonts/barlow-latin-600-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'Barlow Condensed'; font-weight: 700; font-display: swap; src: url(assets/fonts/barlow-condensed-latin-700-normal.woff2) format('woff2'); }
+  :root { --ground: #E9EDF1; --surface: #FFFFFF; --ink: #16202B; --muted: #4E5B69; --rule: #E1E6EC; --blue: #1F4FD1; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground: #0F1823; --surface: #182330; --ink: #E8EDF2; --muted: #9AA8B7; --rule: #253242; --blue: #7D9BF4; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 400 16px/1.6 Barlow, system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; }
+  article { background: var(--surface); border-radius: 18px; padding: 28px 24px; }
+  h1 { font: 700 44px/1 'Barlow Condensed', sans-serif; margin: 0 0 8px; }
+  h2 { font: 700 26px/1.15 'Barlow Condensed', sans-serif; margin: 32px 0 8px; }
+  p, li { max-width: 68ch; }
+  ul { padding-left: 1.2em; }
+  li { margin: 4px 0; }
+  .meta { color: var(--muted); margin: 0 0 20px; }
+  a { color: var(--blue); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 8px 0; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 8px; border-bottom: 1px solid var(--rule); }
+  th { font-weight: 600; }
+  .back { display: inline-block; margin-bottom: 16px; }
+  @media (min-width: 720px) { article { padding: 40px 48px; } }
+</style>
+</head>
+<body>
+<main>
+<a class="back" href="./">Farrell Fitness</a>
+<article>
+<h1>Privacy Policy</h1>
+<p class="meta">Effective October 23, 2026</p>
+
+<p>Farrell Fitness is a personal nutrition, weight and training tracker run by Tim Farrell at farrellfitness.com. It is a private app used only by its owner and anyone the owner gives an account to. It is not sold, advertised or offered to the public. This policy explains what data the app collects, how it is used, and how it is protected.</p>
+
+<h2>What the app collects</h2>
+<table>
+  <thead><tr><th>Data</th><th>Where it comes from</th></tr></thead>
+  <tbody>
+    <tr><td>Account details: username and a hashed password</td><td>You, when the account is created</td></tr>
+    <tr><td>Food log, custom foods and recipes</td><td>You</td></tr>
+    <tr><td>Body weight and optional body-fat percentage</td><td>You</td></tr>
+    <tr><td>Workouts, exercises, sets, reps and weights</td><td>You</td></tr>
+    <tr><td>Settings such as goal, height, birth year, sex and activity level</td><td>You</td></tr>
+    <tr><td>Recovery score, heart rate variability, resting heart rate, blood oxygen, skin temperature, sleep stages and performance, respiratory rate, day strain, calories burned and workouts</td><td>WHOOP, only after you connect your WHOOP account</td></tr>
+  </tbody>
+</table>
+<p>The app does not use analytics, advertising or tracking cookies, and does not collect your location or contacts.</p>
+
+<h2>How WHOOP data is used</h2>
+<p>When you choose to connect WHOOP, you sign in on WHOOP's own website and approve read-only access. The app then reads your recovery, sleep, cycle (strain), workout, profile and body measurement data through the WHOOP Developer API. That data is used only to show you your own recovery, sleep, strain and workouts inside the app, alongside your nutrition and training.</p>
+<ul>
+  <li>WHOOP data is never sold, rented or shared with anyone.</li>
+  <li>It is never used for advertising, marketing or profiling.</li>
+  <li>It is never used to train machine-learning or AI models.</li>
+  <li>The app only reads data. It never writes to or changes your WHOOP account.</li>
+</ul>
+
+<h2>Where data is stored</h2>
+<p>All data is stored in a private MySQL database on the app's web host (Bluehost) in the United States. WHOOP access tokens are stored on the server and are never sent to your browser. Some data is also kept in your browser's storage so the app works offline; it stays on your device.</p>
+
+<h2>Who data is shared with</h2>
+<p>Your data is not shared with third parties. To provide its features, the app sends only the following:</p>
+<ul>
+  <li><strong>USDA FoodData Central</strong> receives the food search terms you type, to return nutrition information.</li>
+  <li><strong>Open Food Facts</strong> receives a product barcode when you scan or enter one.</li>
+  <li><strong>WHOOP</strong> receives requests for your own data, signed with the access you granted.</li>
+</ul>
+<p>None of these requests include your name, your logs or your WHOOP data.</p>
+
+<h2>Security</h2>
+<ul>
+  <li>All traffic uses HTTPS.</li>
+  <li>Passwords are stored only as secure hashes. Sign-in attempts are rate-limited.</li>
+  <li>Sign-in cookies are HTTP-only. The "stay signed in" token is stored hashed and replaced each time it is used.</li>
+  <li>The server configuration and database are not reachable from the web.</li>
+</ul>
+
+<h2>Keeping and deleting data</h2>
+<p>Data is kept until you delete it. You can delete individual entries at any time in the app, and download everything you have stored from Settings.</p>
+<p>To stop WHOOP access, go to Settings and choose Disconnect WHOOP. This revokes the app's access with WHOOP and deletes the stored access tokens and all WHOOP data the app has synced. You can also remove the app's access from your WHOOP account settings at any time. To have your account and all of its data deleted, contact the owner below.</p>
+
+<h2>Children</h2>
+<p>The app is not intended for anyone under 18.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the new version will be posted on this page with a new effective date.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests about your data: Tim Farrell, the owner of farrellfitness.com.</p>
+</article>
+</main>
+</body>
+</html>

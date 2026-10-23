@@ -91,7 +91,8 @@ function renderLogin() {
     err,
     h('label', { class: 'field', for: 'lg-u' }, 'Username', h('input', { id: 'lg-u', autocomplete: 'username', autocapitalize: 'none', required: true })),
     h('label', { class: 'field', for: 'lg-p' }, 'Password', h('input', { id: 'lg-p', type: 'password', autocomplete: 'current-password', required: true })),
-    h('button', { class: 'btn primary block', type: 'submit' }, 'Sign in'));
+    h('button', { class: 'btn primary block', type: 'submit' }, 'Sign in'),
+    h('a', { href: 'privacy.html', class: 'small', style: { alignSelf: 'center' } }, 'Privacy policy'));
   root.replaceChildren(h('div', { class: 'login' }, form));
   document.title = 'Sign in | Farrell Fitness';
   setTimeout(() => form.querySelector('#lg-u').focus(), 30);

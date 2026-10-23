@@ -470,6 +470,9 @@ function route_whoop_disconnect(int $uid, string $m) {
         try { http_request('DELETE', WHOOP_API . '/v2/user/access', ['Authorization' => 'Bearer ' . whoop_access_token($uid)]); } catch (Throwable $e) {}
         q('DELETE FROM whoop_tokens WHERE user_id = ?', [$uid]);
     }
+    // Disconnecting also deletes everything synced from WHOOP.
+    q('DELETE FROM whoop_daily WHERE user_id = ?', [$uid]);
+    q('DELETE FROM whoop_workouts WHERE user_id = ?', [$uid]);
     return ['ok' => true];
 }
 
