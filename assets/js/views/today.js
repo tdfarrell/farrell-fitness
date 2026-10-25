@@ -44,12 +44,27 @@ export async function render(root) {
     action: h('button', { class: 'btn primary block phone-only', onclick: logFood }, icon('plus', 18), 'Log food'),
   });
 
-  const firstRun = !model.hasData;
+  // Shown until the expenditure estimate has enough of your own data (7 finished logged days and a
+  // weigh-in), unless you hide it.
+  const firstRun = !model.hasData && !settings.intro_dismissed;
+  const weighed = model.trendKg != null;
+  const daysDone = Math.min(model.loggedDays, 7);
+  const step = (done, text) => h('li', { class: 'intro-step' + (done ? ' done' : '') },
+    h('span', { class: 'intro-tick', 'aria-hidden': 'true' }, done ? icon('check', 14) : null), h('span', null, text, done ? h('span', { class: 'sr' }, ' (done)') : null));
   const intro = firstRun ? h('section', { class: 'card', 'aria-label': 'Getting started' },
-    h('h2', null, 'Getting started'),
-    h('p', { class: 'note' }, 'Log your weight each morning and everything you eat. After about two weeks your expenditure estimate is built from your own data, and weekly check-ins set your targets from it.'),
+    h('div', { class: 'card-head', style: { alignItems: 'center' } },
+      h('h2', null, 'Getting started'),
+      h('button', { class: 'icon-btn', 'aria-label': 'Hide getting started', onclick: async (e) => {
+        e.currentTarget.closest('section').remove();
+        try { await post('settings', { intro_dismissed: true }); state.settings.intro_dismissed = true; } catch (err) { toast(err.message, 'error'); }
+      } }, icon('close'))),
+    h('p', { class: 'note' }, 'Your expenditure estimate switches from a formula to your own data once you have:'),
+    h('ul', { class: 'intro-steps' },
+      step(weighed, weighed ? 'At least one weigh-in' : 'Log your weight (each morning is best)'),
+      step(daysDone >= 7, `7 finished days of food logged: ${daysDone} of 7 so far`)),
+    h('p', { class: 'note small' }, "Today counts once it's over. Days you didn't log fully can be marked Leave out in the food log so they don't skew the estimate."),
     h('div', { class: 'row' },
-      h('button', { class: 'btn sm', onclick: () => openWeightSheet({ onDone: () => rerender(root) }) }, 'Log weight'),
+      weighed ? null : h('button', { class: 'btn sm', onclick: () => openWeightSheet({ onDone: () => rerender(root) }) }, 'Log weight'),
       h('a', { class: 'btn sm', href: '#/settings' }, 'Set your goal'))) : null;
 
   // Phone: two small cards with sparklines.

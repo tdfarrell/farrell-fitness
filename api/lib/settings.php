@@ -24,6 +24,7 @@ function default_settings(): array {
         'meals' => ['Breakfast', 'Lunch', 'Dinner', 'Snacks'],
         'theme' => 'system',             // system | light | dark
         'rest_seconds' => 120,
+        'intro_dismissed' => false,      // hide the Getting started card on Today
     ];
 }
 
@@ -61,6 +62,7 @@ function save_settings(int $uid, array $patch): array {
     $s['height_cm'] = max(100, min(250, (float) $s['height_cm']));
     $s['meals'] = array_values(array_slice(array_filter(array_map(fn($m) => mb_substr(trim((string) $m), 0, 32), (array) $s['meals'])), 0, 8)) ?: ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
     $s['rest_seconds'] = max(15, min(600, (int) $s['rest_seconds']));
+    $s['intro_dismissed'] = (bool) $s['intro_dismissed'];
 
     db_update('users', ['settings' => json_encode($s)], ['id' => $uid]);
     return $s;

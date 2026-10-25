@@ -464,3 +464,8 @@ body.logged-out .content { padding-bottom: 0; }
 .journal-ic svg { width: 22px; height: 22px; }
 .card h2.list-label { font: 600 12px/1.2 var(--body); letter-spacing: 0.06em; }
 .list > .check-row:first-child { border-top: 0; }
+.intro-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.intro-step { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.intro-tick { width: 22px; height: 22px; border-radius: 11px; border: 2px solid var(--field); display: flex; align-items: center; justify-content: center; flex: none; }
+.intro-step.done .intro-tick { background: var(--green); border-color: var(--green); color: #fff; }
+.intro-step.done { color: var(--muted); }
