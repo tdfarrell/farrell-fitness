@@ -52,7 +52,7 @@ export async function render(root) {
       h('span', { class: 'small muted', style: { fontWeight: 500 } }, 'Expenditure'),
       h('span', { class: 'num', style: { fontSize: '34px' } }, fmt0(model.expenditure)),
       h('span', { class: 'small muted' }, weekChangeText(model)),
-      sparkline(s28.map(s => s.expenditure), 'var(--blue)', 'Expenditure over the last 4 weeks')),
+      sparkline(s28.map(s => s.expenditure), 'var(--kcal)', 'Expenditure over the last 4 weeks')),
     h('a', { class: 'card', href: '#/weight', style: { textDecoration: 'none', color: 'inherit', gap: '4px' }, 'aria-label': 'Trend weight' },
       h('span', { class: 'small muted', style: { fontWeight: 500 } }, 'Trend weight'),
       h('span', { class: 'num', style: { fontSize: '34px' } }, fmtW(model.trendKg), h('span', { class: 'unit' }, ` ${wUnit()}`)),
@@ -65,7 +65,7 @@ export async function render(root) {
     h('div', { class: 'card-head' }, h('h2', null, 'Weight, last 8 weeks'),
       h('span', { class: 'muted', style: { fontSize: '14px' } }, h('strong', { style: { color: 'var(--ink)', fontWeight: 600 } }, `${fmtW(model.trendKg)} ${wUnit()}`), ' trend, ', weeklyRateText(model))),
     chart({ n: s56.length, w: 640, h: 220, dots: [{ values: s56.map(s => toDisplayW(s.weight)) }],
-      lines: [{ values: s56.map(s => toDisplayW(s.trend)), color: 'var(--blue)', endDot: true }],
+      lines: [{ values: s56.map(s => toDisplayW(s.trend)), color: 'var(--primary)', endDot: true }],
       xLabels: dateTicks(wDates), yFormat: (v) => fmt0(v), label: 'Scale weights and smoothed trend over 8 weeks' }));
 
   const s84 = model.series.slice(-84);
@@ -75,11 +75,11 @@ export async function render(root) {
   const expChart = h('section', { class: 'card grow-2 desk-only', style: { flexDirection: 'column' }, 'aria-label': 'Expenditure' },
     h('h2', null, 'Expenditure'),
     h('div', { style: { display: 'flex', gap: '28px' } },
-      h('div', { class: 'stat' }, h('span', { class: 'num', style: { fontSize: '34px', color: 'var(--blue)' } }, fmt0(model.expenditure)), h('span', { class: 'label', style: { fontSize: '13px' } }, 'adaptive estimate')),
+      h('div', { class: 'stat' }, h('span', { class: 'num', style: { fontSize: '34px', color: 'var(--kcal)' } }, fmt0(model.expenditure)), h('span', { class: 'label', style: { fontSize: '13px' } }, 'adaptive estimate')),
       last14Whoop.length ? h('div', { class: 'stat' }, h('span', { class: 'num muted', style: { fontSize: '34px' } }, fmt0(avg(last14Whoop))), h('span', { class: 'label', style: { fontSize: '13px' } }, 'WHOOP, 14-day avg')) : null),
     chart({ n: s84.length, w: 400, h: 180, lines: [
       ...(hasWhoopKcal ? [{ values: smooth(whoopKcal, 7), color: 'var(--dot)', width: 2, dash: '5 4' }] : []),
-      { values: s84.map(s => s.expenditure), color: 'var(--blue)' }],
+      { values: s84.map(s => s.expenditure), color: 'var(--kcal)' }],
       xLabels: dateTicks(s84.map(s => s.date), 3), yFormat: fmt0, label: 'Adaptive expenditure estimate over 12 weeks' + (hasWhoopKcal ? ', with WHOOP calories for comparison' : '') }),
     h('p', { class: 'note small' }, 'Targets use the adaptive estimate, which comes from your intake and weight trend.' + (hasWhoopKcal ? " WHOOP's number is shown for comparison." : '')));
 
@@ -89,7 +89,7 @@ export async function render(root) {
     h('div', { class: 'card-head' }, h('h2', null, 'Intake, last 14 days'),
       h('span', { class: 'muted', style: { fontSize: '14px' } }, logged14.length ? `Avg ${fmt0(avg(logged14.map(d => d.kcal)))} kcal, ${logged14.length} of ${d14.length - 1} days logged` : 'No days logged yet')),
     chart({ n: d14.length, w: 640, h: 170, yMin: 0,
-      bars: [{ values: d14.map(d => (d.entries > 0 ? d.kcal : null)), colorFn: (v, i) => (i === d14.length - 1 ? 'var(--soft-blue)' : 'var(--blue)'), emptyColor: 'var(--ground)' }],
+      bars: [{ values: d14.map(d => (d.entries > 0 ? d.kcal : null)), colorFn: (v, i) => (i === d14.length - 1 ? 'var(--soft-kcal)' : 'var(--kcal)'), emptyColor: 'var(--ground)' }],
       hline: { value: targets.kcal }, xLabels: dateTicks(d14.map(d => d.date), 3), yFormat: fmt0,
       label: `Daily intake for 14 days against the ${fmt0(targets.kcal)} calorie target` }));
 

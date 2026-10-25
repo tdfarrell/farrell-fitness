@@ -86,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Set up Farrell Fitness</title>
 <style>
-  :root { --ground:#E9EDF1; --surface:#fff; --ink:#16202B; --muted:#4E5B69; --line:#C9D2DC; --blue:#1F4FD1; --red:#C9302C; }
+  :root { --ground:#E9EDF1; --surface:#fff; --ink:#16202B; --muted:#4E5B69; --line:#C9D2DC; --blue:#00275B; --red:#C9302C; }
   body { margin:0; background:var(--ground); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
   main { max-width:620px; margin:0 auto; padding:32px 16px 64px; }
   h1 { font-size:34px; margin:0 0 4px; }

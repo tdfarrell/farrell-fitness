@@ -8,15 +8,15 @@
   "display": "standalone",
   "orientation": "any",
   "background_color": "#E9EDF1",
-  "theme_color": "#16202B",
+  "theme_color": "#00275B",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icons/icon-v2-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-v2-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-v2-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Log food", "url": "./#/food", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Log weight", "url": "./#/weight", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Start workout", "url": "./#/train/new", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Log food", "url": "./#/food", "icons": [{ "src": "icons/icon-v2-192.png", "sizes": "192x192" }] },
+    { "name": "Log weight", "url": "./#/weight", "icons": [{ "src": "icons/icon-v2-192.png", "sizes": "192x192" }] },
+    { "name": "Start workout", "url": "./#/train/new", "icons": [{ "src": "icons/icon-v2-192.png", "sizes": "192x192" }] }
   ]
 }

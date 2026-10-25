@@ -66,13 +66,13 @@ export async function render(root) {
         shown.some(s => s.weight != null)
           ? chart({ n: shown.length, w: 640, h: 240,
               dots: [{ values: shown.map(s => toDisplayW(s.weight)), r: shown.length > 120 ? 2 : 3 }],
-              lines: [{ values: shown.map(s => toDisplayW(s.trend)), color: 'var(--blue)', endDot: true }],
+              lines: [{ values: shown.map(s => toDisplayW(s.trend)), color: 'var(--primary)', endDot: true }],
               xLabels: dateTicks(shown.map(s => s.date)), yFormat: (v) => fmt1(v).replace('.0', ''),
               label: `Scale weights and smoothed trend, now ${fmtW(model.trendKg)} ${wUnit()}` })
           : h('p', { class: 'empty' }, 'Log your first weigh-in to start your trend.'),
         h('div', { class: 'legend' },
           h('span', null, h('i', { style: { width: '8px', height: '8px', borderRadius: '4px', background: 'var(--dot)' } }), 'Scale weight'),
-          h('span', null, h('i', { style: { width: '16px', height: '3px', borderRadius: '2px', background: 'var(--blue)' } }), 'Trend')),
+          h('span', null, h('i', { style: { width: '16px', height: '3px', borderRadius: '2px', background: 'var(--primary)' } }), 'Trend')),
         h('p', { class: 'note small' }, 'Daily weight swings with water, salt and food in your system. The trend line smooths those out so you see real change.')),
       h('div', { class: 'grow-2 stack' },
         h('section', { class: 'card', 'aria-label': 'Log today' },

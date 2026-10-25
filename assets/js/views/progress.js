@@ -43,14 +43,14 @@ export async function render(root) {
     h('h2', null, `${weeks.length} weeks`),
     weeks.some(w => w.intake != null)
       ? chart({ n: weeks.length, w: 640, h: 220, yMin: Math.max(0, Math.min(...weeks.map(w => Math.min(w.intake ?? Infinity, w.exp ?? Infinity))) - 400),
-          bars: [{ values: weeks.map(w => w.intake), color: 'var(--soft-blue)' }],
-          lines: [{ values: weeks.map(w => w.exp), color: 'var(--blue)' }],
+          bars: [{ values: weeks.map(w => w.intake), color: 'var(--soft-kcal)' }],
+          lines: [{ values: weeks.map(w => w.exp), color: 'var(--kcal)' }],
           xLabels: [{ i: 0, text: shortDate(weeks[0].end).split(', ')[1] }, { i: weeks.length - 1, text: shortDate(weeks[weeks.length - 1].end).split(', ')[1] }],
           yFormat: fmt0, label: 'Weekly average intake as bars with the expenditure estimate as a line' })
       : h('p', { class: 'note' }, 'Log food for a week to see intake against expenditure.'),
     h('div', { class: 'legend' },
-      h('span', null, h('i', { style: { width: '16px', height: '3px', borderRadius: '2px', background: 'var(--blue)' } }), 'Expenditure'),
-      h('span', null, h('i', { style: { width: '10px', height: '10px', borderRadius: '2px', background: 'var(--soft-blue)' } }), 'Avg intake')));
+      h('span', null, h('i', { style: { width: '16px', height: '3px', borderRadius: '2px', background: 'var(--kcal)' } }), 'Expenditure'),
+      h('span', null, h('i', { style: { width: '10px', height: '10px', borderRadius: '2px', background: 'var(--soft-kcal)' } }), 'Avg intake')));
 
   const macroRow = (name, cls, v, was) => h('div', { style: { display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', padding: '10px 0', borderTop: '1px solid var(--rule)', alignItems: 'center' } },
     h('span', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 } }, h('span', { class: 'swatch ' + cls, style: { height: '16px' }, 'aria-hidden': 'true' }), name),

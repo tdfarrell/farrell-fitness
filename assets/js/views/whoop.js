@@ -46,7 +46,7 @@ export async function render(root) {
         mk('Recovery', chart({ n: days.length, w: 520, h: 200, yMin: 0, yMax: 100, bars: [{ values: W('recovery'), colorFn: (v) => recoveryColor(v) }],
           xLabels: dateTicks(dates, 3), yFormat: (v) => `${v}%`, label: `Daily recovery for ${span} days` }), `avg ${fmt0(avg(W('recovery')))}%`)),
       h('div', { class: 'row' },
-        mk('HRV', chart({ n: days.length, w: 520, h: 180, lines: [{ values: W('hrv'), color: 'var(--blue)', endDot: true }], dots: [{ values: W('hrv'), color: 'var(--blue)', r: 2.5 }],
+        mk('HRV', chart({ n: days.length, w: 520, h: 180, lines: [{ values: W('hrv'), color: 'var(--primary)', endDot: true }], dots: [{ values: W('hrv'), color: 'var(--primary)', r: 2.5 }],
           xLabels: dateTicks(dates, 3), yFormat: fmt0, label: `Heart rate variability for ${span} days` }), `avg ${fmt0(avg(W('hrv')))} ms`),
         mk('Resting heart rate', chart({ n: days.length, w: 520, h: 180, lines: [{ values: W('rhr'), color: 'var(--red)', endDot: true }], dots: [{ values: W('rhr'), color: 'var(--red)', r: 2.5 }],
           xLabels: dateTicks(dates, 3), yFormat: fmt0, label: `Resting heart rate for ${span} days` }), `avg ${fmt0(avg(W('rhr')))} bpm`)),

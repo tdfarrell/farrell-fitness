@@ -378,7 +378,7 @@ async function renderExercise(root, id) {
       h('section', { class: 'card grow-3', 'aria-label': 'Estimated one-rep max' },
         h('h2', null, 'Estimated 1-rep max'),
         sessions.length > 1
-          ? chart({ n: sessions.length, w: 640, h: 220, lines: [{ values: best.map(toDisplayW), color: 'var(--blue)', endDot: true }], dots: [{ values: best.map(toDisplayW), color: 'var(--blue)' }],
+          ? chart({ n: sessions.length, w: 640, h: 220, lines: [{ values: best.map(toDisplayW), color: 'var(--primary)', endDot: true }], dots: [{ values: best.map(toDisplayW), color: 'var(--primary)' }],
               xLabels: dateTicks(sessions.map(s => s.date), Math.min(4, sessions.length)), yFormat: fmt0, label: `Estimated one-rep max for ${ex.name} by session` })
           : h('p', { class: 'note' }, 'Log this exercise in two or more sessions to see a trend.'),
         h('p', { class: 'note small' }, 'Estimated from your best working set each session (Epley formula).')),

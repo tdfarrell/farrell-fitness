@@ -19,7 +19,7 @@ export async function render(root, params) {
   const refresh = () => { markStale(); render(root, [date]); };
 
   const totalsCard = h('div', { class: 'card', style: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px', padding: '12px 16px' } },
-    [['kcal', fmt0(tot.kcal), `of ${fmt0(targets.kcal)} kcal`, 'var(--blue)'],
+    [['kcal', fmt0(tot.kcal), `of ${fmt0(targets.kcal)} kcal`, 'var(--kcal)'],
      ['protein', `${fmt0(tot.protein)} g`, `of ${fmt0(targets.protein)} protein`],
      ['carbs', `${fmt0(tot.carbs)} g`, `of ${fmt0(targets.carbs)} carbs`],
      ['fat', `${fmt0(tot.fat)} g`, `of ${fmt0(targets.fat)} fat`]].map(([, v, l, c]) =>
@@ -38,7 +38,7 @@ export async function render(root, params) {
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
           h('span', { class: 'small muted' }, list.length ? `${fmt0(m.kcal)} kcal` : ''),
           h('button', { class: 'icon-btn', 'aria-label': `More options for ${meal}`, onclick: () => openMealMenu(date, meal, list.length, refresh) }, icon('more')),
-          h('button', { class: 'icon-btn', 'aria-label': `Add food to ${meal}`, style: { color: 'var(--blue)' }, onclick: () => openAddFood({ date, meal, onDone: refresh }) }, icon('plus')))),
+          h('button', { class: 'icon-btn', 'aria-label': `Add food to ${meal}`, style: { color: 'var(--primary)' }, onclick: () => openAddFood({ date, meal, onDone: refresh }) }, icon('plus')))),
       list.length ? h('div', { class: 'list' }, list.map(e => h('button', { class: 'list-row', onclick: () => openEntry(e, meals, refresh) },
         h('div', { class: 'main' },
           h('span', { style: { fontSize: '15px' } }, e.name),
@@ -77,7 +77,7 @@ function openDayStatus(date, current, refresh) {
         s.close(); toast('Day updated'); refresh();
       } },
         h('div', { class: 'main' }, h('span', { class: 'title' }, label), h('span', { class: 'small muted' }, desc)),
-        current === k ? h('span', { style: { color: 'var(--blue)' } }, icon('check', 20)) : null)))),
+        current === k ? h('span', { style: { color: 'var(--primary)' } }, icon('check', 20)) : null)))),
   });
 }
 
@@ -200,7 +200,7 @@ export function openAddFood({ date, meal, onDone }) {
           h('button', { class: 'main', style: { background: 'none', border: 0, padding: 0, textAlign: 'left', cursor: 'pointer', color: 'inherit' }, 'aria-expanded': String(isOpen), onclick: () => { expanded = isOpen ? null : key; draw(lastItems); } },
             h('span', { class: 'title' }, f.name), h('span', { class: 'small muted' }, meta)),
           h('span', { class: 'num', style: { fontSize: '19px', fontWeight: 600, whiteSpace: 'nowrap' } }, fmt0(kcal)),
-          h('button', { class: 'icon-btn', 'aria-label': `Quick add ${f.name}`, style: { border: '1px solid var(--field)', borderRadius: '22px', color: 'var(--blue)' },
+          h('button', { class: 'icon-btn', 'aria-label': `Quick add ${f.name}`, style: { border: '1px solid var(--field)', borderRadius: '22px', color: 'var(--primary)' },
             onclick: () => addFood(f, { grams: portion ? portion.grams : 100, quantity: 1, portion_label: portion ? `1 x ${portion.label}` : '100 g' }) }, icon('plus', 18)));
         wrap.append(head);
         if (isOpen) {
