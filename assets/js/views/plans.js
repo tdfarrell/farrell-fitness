@@ -4,6 +4,7 @@ import { get, post } from '../api.js';
 import { state, loadSummary, markStale } from '../store.js';
 import { pageHead } from '../components.js';
 import { openAddFood, foodSwitch, amountEditor } from './food.js';
+import { gripHandle, makeSortable } from '../sortable.js';
 
 const LAST_KEY = 'ff_last_plan';
 const lastPlan = () => { try { return +localStorage.getItem(LAST_KEY) || null; } catch { return null; } };
@@ -100,7 +101,7 @@ export async function render(root, params) {
       h('div', { class: 'row' },
         h('div', { class: 'grow-2 stack' }, totals,
           h('div', { class: 'grid-2' },
-            h('button', { class: 'btn', onclick: () => planMenu(plan, refresh) }, 'Plan options'),
+            h('button', { class: 'btn', onclick: () => planMenu(plan, refresh, plans) }, 'Plan options'),
             h('button', { class: 'btn primary', disabled: !items.length, onclick: () => logPlan(plan, mealNames) }, 'Log to a day'))),
         h('div', { class: 'grow-3 stack' }, mealCards))));
 }
@@ -120,7 +121,26 @@ function newPlan(onCreated) {
   });
 }
 
-function planMenu(plan, refresh) {
+function reorderPlans(plans, refresh) {
+  openSheet({
+    title: 'Reorder plans',
+    onClose: refresh,
+    body: (sheet) => {
+      let order = [...plans];
+      const list = h('div', { class: 'list' });
+      const draw = () => list.replaceChildren(...order.map(p => h('div', { class: 'list-row sort-row', 'data-key': String(p.id), 'data-label': p.name },
+        gripHandle(p.name), h('div', { class: 'main' }, h('span', { class: 'title' }, p.name), h('span', { class: 'small muted' }, `${p.items.length} item${p.items.length === 1 ? '' : 's'}`)))));
+      makeSortable(list, { onChange: async (keys) => {
+        order = keys.map(k => order.find(p => String(p.id) === k));
+        try { await post('plans/order', { ids: keys.map(Number) }); } catch (e) { toast(e.message, 'error'); }
+      } });
+      draw();
+      sheet.body.append(h('p', { class: 'note small' }, 'Drag the handle to change the order of the plan chips.'), list, h('button', { class: 'btn primary block', onclick: () => sheet.close() }, 'Done'));
+    },
+  });
+}
+
+function planMenu(plan, refresh, plans = []) {
   const s = openSheet({
     title: plan.name,
     body: h('div', { class: 'stack' },
@@ -135,6 +155,7 @@ function planMenu(plan, refresh) {
       h('button', { class: 'btn block', onclick: async () => {
         const r = await post('plans/duplicate', { id: plan.id }); s.close(); toast('Plan duplicated'); location.hash = `#/plans/${r.plan.id}`;
       } }, 'Duplicate plan'),
+      plans.length > 1 ? h('button', { class: 'btn block', onclick: () => { s.close(); reorderPlans(plans, refresh); } }, 'Reorder plans') : null,
       plan.items.length ? h('button', { class: 'btn block', onclick: async () => {
         if (!(await confirmSheet('Clear this plan?', `Remove all ${plan.items.length} items from ${plan.name}?`, 'Clear'))) return;
         await post('plans/save', { id: plan.id, items: [] }); s.close(); refresh();
@@ -161,7 +182,7 @@ function logPlan(plan, meals) {
         const r = await post('plans/log', { id: plan.id, date: dateIn.value, meal: mealSel.value || null });
         markStale(); s.close();
         toast(`Logged ${r.logged} item${r.logged === 1 ? '' : 's'}`);
-        location.hash = dateIn.value === todayISO() ? '#/food' : `#/food/${dateIn.value}`;
+        location.hash = dateIn.value === todayISO() ? '#/food/diary' : `#/food/${dateIn.value}`;
       } catch (err) { toast(err.message, 'error'); }
     } },
       h('p', { class: 'note' }, 'Copies the plan into your food log. The plan stays as it is, so you can use it again.'),

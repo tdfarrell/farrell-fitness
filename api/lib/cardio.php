@@ -136,8 +136,8 @@ function e1rm_kg(?float $kg, ?int $reps): ?float {
 }
 
 function week_start(string $date): string {
-    $t = strtotime($date);
-    return date('Y-m-d', $t - ((int) date('N', $t) - 1) * 86400); // Monday
+    $n = (int) date('N', strtotime("$date 12:00")) - 1;
+    return date('Y-m-d', strtotime("$date 12:00 -$n days")); // Monday (date math, so DST can't shift it)
 }
 
 /**
@@ -227,8 +227,7 @@ function route_training_stats(int $uid, string $m) {
     // Weekly series, Monday-based, from the earlier of `from` and 12 weeks ago.
     $weeks = [];
     $start = week_start(min($from, date('Y-m-d', strtotime('-12 weeks'))));
-    for ($t = strtotime($start); $t <= strtotime($to); $t += 7 * 86400) {
-        $k = date('Y-m-d', $t);
+    for ($k = $start; $k <= $to; $k = date('Y-m-d', strtotime("$k 12:00 +7 days"))) {
         $weeks[] = ['week' => $k, 'volume_kg' => round($weeklyVol[$k] ?? 0), 'distance_m' => round($weeklyDist[$k] ?? 0), 'duration_s' => (int) ($weeklyTime[$k] ?? 0)];
     }
 

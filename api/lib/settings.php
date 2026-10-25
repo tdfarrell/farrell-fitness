@@ -25,6 +25,9 @@ function default_settings(): array {
         'theme' => 'system',             // system | light | dark
         'rest_seconds' => 120,
         'intro_dismissed' => false,      // hide the Getting started card on Today
+        'lift_days_goal' => 4,           // lifting sessions per week, for the Train overview
+        'body_fat_source' => 'auto',     // auto | tape | scale | manual
+        'reminders' => [],               // filled in from default_reminders()
     ];
 }
 
@@ -42,7 +45,9 @@ function merge_settings(array $base, array $over): array {
 function get_settings(int $uid): array {
     $raw = q_val('SELECT settings FROM users WHERE id = ?', [$uid]);
     $saved = $raw ? (json_decode($raw, true) ?: []) : [];
-    return merge_settings(default_settings(), $saved);
+    $s = merge_settings(default_settings(), $saved);
+    if (function_exists('clean_reminders')) $s['reminders'] = clean_reminders($s['reminders']);
+    return $s;
 }
 
 function save_settings(int $uid, array $patch): array {
@@ -63,6 +68,10 @@ function save_settings(int $uid, array $patch): array {
     $s['meals'] = array_values(array_slice(array_filter(array_map(fn($m) => mb_substr(trim((string) $m), 0, 32), (array) $s['meals'])), 0, 8)) ?: ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
     $s['rest_seconds'] = max(15, min(600, (int) $s['rest_seconds']));
     $s['intro_dismissed'] = (bool) $s['intro_dismissed'];
+    $s['lift_days_goal'] = max(0, min(14, (int) $s['lift_days_goal']));
+    $s['body_fat_source'] = in_array($s['body_fat_source'], ['auto', 'tape', 'scale', 'manual'], true) ? $s['body_fat_source'] : 'auto';
+    $s['reminders'] = clean_reminders($s['reminders']);
+    if (isset($s['goal']['target_kg']) && $s['goal']['target_kg'] !== null) $s['goal']['target_kg'] = max(30, min(300, (float) $s['goal']['target_kg']));
 
     db_update('users', ['settings' => json_encode($s)], ['id' => $uid]);
     return $s;

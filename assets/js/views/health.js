@@ -1,9 +1,10 @@
 // Health: vitals and fitness markers, sleep, medications and supplements, labs and blood sugar.
-import { h, icon, fmt0, fmt1, todayISO, relDay, shortDate, hoursMin, openSheet, toast, confirmSheet } from '../ui.js';
+import { h, icon, fmt0, fmt1, todayISO, relDay, shortDate, hoursMin, openSheet, toast, confirmSheet, relDayLc } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary, fmtW, wUnit, toDisplayW, imperial } from '../store.js';
 import { pageHead, loading } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
+import { gripHandle, makeSortable } from '../sortable.js';
 
 const TIMES = [['morning', 'Morning'], ['midday', 'Midday'], ['evening', 'Evening'], ['bedtime', 'Bedtime'], ['any', 'Any time']];
 const TIME_LABEL = Object.fromEntries(TIMES);
@@ -23,6 +24,7 @@ export const LAB_PRESETS = [
 
 export async function render(root, params) {
   if (params[0] === 'labs') return renderLabs(root);
+  if (params[0] === 'meds') return renderMeds(root);
   root.replaceChildren(loading());
   await loadSummary();
   const data = await get('health', { date: todayISO() });
@@ -96,7 +98,7 @@ export async function render(root, params) {
     h('div', { class: 'card-head' }, h('h2', null, 'Labs and blood sugar'), icon('right', 20)),
     h('p', { class: 'note' }, [
       data.labs_latest.date ? `Panel from ${shortDate(data.labs_latest.date)}: ${data.labs_latest.results.length} results${oor.length ? `, ${oor.length} outside range (${oor.slice(0, 3).map(l => `${l.marker} ${l.value}`).join(', ')})` : ', all in range'}.` : 'No lab results yet.',
-      lastG ? `Last blood sugar ${fmt0(lastG.mg_dl)} mg/dL, ${CONTEXT_LABEL[lastG.context]?.toLowerCase() || ''} ${relDay(lastG.date).toLowerCase()}.` : '',
+      lastG ? `Last blood sugar ${fmt0(lastG.mg_dl)} mg/dL, ${CONTEXT_LABEL[lastG.context]?.toLowerCase() || ''} ${relDayLc(lastG.date)}.` : '',
     ].filter(Boolean).join(' ')));
 
   root.replaceChildren(
@@ -111,39 +113,120 @@ export async function render(root, params) {
 
 /* ---------- medications and supplements ---------- */
 
+export const FREQS = [['daily', 'Daily'], ['twice', 'Twice a day'], ['thrice', '3 times a day'], ['weekly', 'Weekly'], ['interval', 'Every few days'], ['prn', 'As needed']];
+const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const DOW_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const ord = (n) => ['1st', '2nd', '3rd'][n] || `${n + 1}th`;
+const clock = (unix) => new Date(unix * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+const hhmm = (t) => { const [a, b] = t.split(':').map(Number); return new Date(2000, 0, 1, a, b).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase(); };
+
+/** Short description of a schedule: "Twice a day", "Sundays", "Every 3 days". */
+export function freqText(i) {
+  const s = i.schedule;
+  if (i.frequency === 'weekly') return s.weekdays.length === 7 ? 'Daily' : s.weekdays.length === 1 ? `${DOW_LONG[s.weekdays[0]]}s` : s.weekdays.map(d => DOW_LONG[d].slice(0, 3)).join(', ');
+  if (i.frequency === 'interval') return `Every ${s.every} days`;
+  if (i.frequency === 'prn') return s.max ? `As needed, up to ${s.max} a day` : 'As needed';
+  return { daily: 'Daily', twice: 'Twice a day', thrice: '3 times a day' }[i.frequency];
+}
+/** freqText for mid-sentence: lowercase, but weekday names keep their capital. */
+const freqLc = (i) => (i.frequency === 'weekly' ? freqText(i) : freqText(i).toLowerCase());
+function tagFor(i) {
+  if (i.supply_days != null && i.supply_days <= 7) return h('span', { class: 'badge refill' }, 'Refill soon');
+  const t = { daily: 'Daily', twice: '2× a day', thrice: '3× a day', weekly: 'Weekly', interval: `Every ${i.schedule.every}d` }[i.frequency];
+  return t ? h('span', { class: `badge freq-${i.frequency}` }, t) : null;
+}
+
+/** All doses due on `date`, flattened: [{item, dose}]. */
+function dueDoses(items) {
+  return items.filter(i => i.frequency !== 'prn').flatMap(i => i.doses.map(d => ({ item: i, dose: d })));
+}
+
+function doseRow({ item: i, dose: d }, date, redraw) {
+  const id = `dose-${i.id}-${d.slot}`;
+  const n = i.doses.length;
+  const bits = [n > 1 ? `${ord(d.slot)} of ${n} doses` : null,
+    d.taken_at ? `taken ${clock(d.taken_at)}` : i.frequency === 'weekly' || i.frequency === 'interval' ? `Due today, ${freqLc(i)}` : hhmm(d.time),
+    i.supply != null ? `${i.supply} left${i.supply_days != null ? `, ${i.supply_days} day${i.supply_days === 1 ? '' : 's'}` : ''}` : null];
+  return h('label', { class: 'check-row', for: id },
+    h('input', { type: 'checkbox', id, checked: !!d.taken_at, onchange: async (e) => {
+      try { const r = await post('health/dose', { item_id: i.id, date, slot: d.slot, taken: e.target.checked }); redraw(r.items || []); }
+      catch (err) { e.target.checked = !e.target.checked; toast(err.message, 'error'); }
+    } }),
+    h('span', { class: 'main' },
+      h('span', { class: 'title' }, i.name, i.dose ? h('span', { class: 'muted', style: { fontWeight: 500 } }, `, ${i.dose}`) : null),
+      h('span', { class: 'small muted' }, bits.filter(Boolean).join(', '))),
+    tagFor(i));
+}
+
+function prnRow(i, date, redraw) {
+  const today = i.taken_today || [];
+  const atMax = i.schedule.max && today.length >= i.schedule.max;
+  return h('div', { class: 'check-row prn-row' },
+    h('span', { class: 'main' },
+      h('span', { class: 'title' }, i.name, i.dose ? h('span', { class: 'muted', style: { fontWeight: 500 } }, `, ${i.dose}`) : null),
+      h('span', { class: 'small muted' }, [
+        today.length ? `${today.length} today, last at ${clock(today[today.length - 1].taken_at)}` : i.last_taken_at ? `Last taken ${relDayLc(new Date(i.last_taken_at * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10))} at ${clock(i.last_taken_at)}` : 'Not taken yet',
+        i.schedule.max ? `Up to ${i.schedule.max} a day` : null, i.supply != null ? `${i.supply} left` : null].filter(Boolean).join('. '))),
+    today.length ? h('button', { class: 'btn sm ghost', 'aria-label': `Undo the last ${i.name} dose`, onclick: async () => {
+      try { const r = await post('health/dose', { item_id: i.id, date, slot: today[today.length - 1].slot, taken: false }); redraw(r.items); } catch (e) { toast(e.message, 'error'); }
+    } }, 'Undo') : null,
+    h('button', { class: 'btn sm primary', onclick: async () => {
+      if (atMax && !(await confirmSheet('Over your daily limit?', `You've logged ${today.length} doses of ${i.name} today, your limit is ${i.schedule.max}. Log another anyway?`, 'Log it'))) return;
+      try { const r = await post('health/dose', { item_id: i.id, date, taken: true }); redraw(r.items); toast(`${i.name} logged`); } catch (e) { toast(e.message, 'error'); }
+    } }, 'Log a dose'));
+}
+
+/** Checklist for a day: due doses grouped by part of day, then as-needed items, then what's coming up. */
+export function medsChecklist(items, date, redraw, { upcoming = true } = {}) {
+  const doses = dueDoses(items);
+  const prn = items.filter(i => i.frequency === 'prn');
+  const later = items.filter(i => i.frequency !== 'prn' && !i.due && i.next_due);
+  const groups = TIMES.map(([t, label]) => [label, doses.filter(x => x.dose.part === t).sort((a, b) => (a.dose.time < b.dose.time ? -1 : 1))]).filter(([, r]) => r.length);
+  return h('div', { class: 'list' },
+    groups.flatMap(([label, rows]) => [h('span', { class: 'list-label' }, label), ...rows.map(x => doseRow(x, date, redraw))]),
+    prn.length ? [h('span', { class: 'list-label' }, 'As needed'), ...prn.map(i => prnRow(i, date, redraw))] : null,
+    upcoming && later.length ? h('p', { class: 'small muted coming-up' }, 'Not due today: ', later.map(i => `${i.name}, ${freqLc(i)}, next ${relDayLc(i.next_due)}`).join('; '), '.') : null);
+}
+
 function medsCard(items, date, refresh) {
   const box = h('section', { class: 'card', 'aria-label': 'Medications and supplements' });
   const draw = (list) => {
-    const taken = list.filter(i => i.taken_at).length;
-    box.replaceChildren(
-      h('div', { class: 'card-head' }, h('h2', null, 'Meds and supplements'),
+    const doses = dueDoses(list);
+    const taken = doses.filter(x => x.dose.taken_at).length;
+    box.replaceChildren(...[
+      h('div', { class: 'card-head' }, h('h2', null, h('a', { href: '#/health/meds', class: 'linkish' }, 'Meds and supplements')),
         h('button', { class: 'btn sm ghost', onclick: () => manageItems(() => refresh()) }, list.length ? 'Edit list' : 'Add')),
-      list.length ? h('p', { class: 'small muted' }, `${taken} of ${list.length} taken today`) : h('p', { class: 'note' }, 'Add what you take, then tick each one off every day. Habits can check itself once everything is taken.'),
-      list.length ? h('div', { class: 'list' }, groupByTime(list).flatMap(([t, rows]) => [
-        h('span', { class: 'list-label' }, TIME_LABEL[t]),
-        ...rows.map(i => doseRow(i, date, draw))])) : null);
+      list.length ? h('p', { class: 'small muted' }, doses.length ? `${taken} of ${doses.length} doses taken today` : 'Nothing scheduled today')
+        : h('p', { class: 'note' }, 'Add what you take, with how often, then tick each dose off. Reminders can nudge you at each dose time.'),
+      list.length ? medsChecklist(list, date, draw) : null].filter(Boolean));
   };
   draw(items);
   return box;
 }
 
-function groupByTime(list) {
-  const order = TIMES.map(t => t[0]);
-  return order.map(t => [t, list.filter(i => i.time_of_day === t)]).filter(([, r]) => r.length);
-}
-
-function doseRow(i, date, redraw) {
-  const id = `dose-${i.id}`;
-  const low = i.supply != null && i.supply <= 7;
-  return h('label', { class: 'check-row', for: id },
-    h('input', { type: 'checkbox', id, checked: !!i.taken_at, onchange: async (e) => {
-      try { const r = await post('health/dose', { item_id: i.id, date, taken: e.target.checked }); redraw(r.items || []); }
-      catch (err) { e.target.checked = !e.target.checked; toast(err.message, 'error'); }
-    } }),
-    h('span', { class: 'main' },
-      h('span', { class: 'title' }, i.name, i.dose ? h('span', { class: 'muted', style: { fontWeight: 500 } }, `, ${i.dose}`) : null),
-      h('span', { class: 'small muted' }, [i.kind === 'medication' ? 'Medication' : 'Supplement', i.taken_at ? `taken ${new Date(i.taken_at * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase()}` : null, i.supply != null ? `${i.supply} left` : null].filter(Boolean).join(', '))),
-    low ? h('span', { class: 'tiny', style: { fontWeight: 600, color: 'var(--red)' } }, 'Refill soon') : null);
+/** Full-screen checklist (#/health/meds), where reminders lead. */
+export async function renderMeds(root) {
+  root.replaceChildren(loading());
+  const date = todayISO();
+  const r = await get('health/items', { date });
+  const refresh = () => renderMeds(root);
+  const hero = h('section', { class: 'card', 'aria-label': 'Today' });
+  const list = h('section', { class: 'card', 'aria-label': 'Checklist', style: { gap: 0 } });
+  const draw = (items) => {
+    const doses = dueDoses(items);
+    const taken = doses.filter(x => x.dose.taken_at).length;
+    hero.replaceChildren(h('div', { class: 'card-head', style: { alignItems: 'center' } },
+      h('span', { class: 'num', style: { fontSize: '40px', color: 'var(--green)' } }, taken, h('span', { class: 'unit', style: { fontSize: '20px' } }, ` of ${doses.length} doses today`)),
+      h('button', { class: 'btn sm', onclick: () => manageItems(refresh) }, 'Edit list')));
+    list.replaceChildren(...[items.length ? medsChecklist(items, date, draw) : h('p', { class: 'note' }, 'Nothing on your list yet.'),
+      items.length ? null : h('button', { class: 'btn primary', style: { alignSelf: 'flex-start', marginTop: '12px' }, onclick: () => editItem(null, refresh) }, 'Add a medication or supplement')].filter(Boolean));
+  };
+  draw(r.items);
+  root.replaceChildren(
+    h('div', { class: 'page-head' }, h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+      h('a', { href: '#/health', class: 'back-link' }, icon('left', 18), 'Health'), h('h1', null, 'Meds and supplements'))),
+    h('div', { class: 'stack', style: { maxWidth: '640px' } }, hero, list,
+      h('p', { class: 'note small' }, 'Reminders for each dose time are set in ', h('a', { href: '#/settings/sync' }, 'Reminders and sync'), '.')));
 }
 
 /** Today's checklist in a sheet (from the + button). */
@@ -159,10 +242,10 @@ export function openMedsSheet({ onDone } = {}) {
           h('button', { class: 'btn primary block', onclick: () => { sheet.close(); manageItems(() => openMedsSheet({ onDone })); } }, 'Add a medication or supplement'));
         return;
       }
-      const list = h('div', { class: 'list' });
-      const draw = (items) => { changed = true; list.replaceChildren(...groupByTime(items).flatMap(([t, rows]) => [h('span', { class: 'list-label' }, TIME_LABEL[t]), ...rows.map(i => doseRow(i, todayISO(), draw))])); };
+      const box = h('div');
+      const draw = (items) => { changed = true; box.replaceChildren(medsChecklist(items, todayISO(), draw)); };
       draw(r.items); changed = false;
-      sheet.body.append(list, h('a', { class: 'btn block', href: '#/health', onclick: () => sheet.close() }, 'Manage the list'));
+      sheet.body.append(box, h('a', { class: 'btn block', href: '#/health/meds', onclick: () => sheet.close() }, 'Manage the list'));
     },
   });
 }
@@ -173,15 +256,24 @@ function manageItems(onDone) {
     tall: true,
     onClose: onDone,
     body: async (sheet) => {
-      const r = await get('health/items', { all: 1 });
       const list = h('div', { class: 'list' });
-      const draw = (items) => list.replaceChildren(...(items.length ? items.map(i => h('button', { class: 'list-row', onclick: () => editItem(i, reload) },
-        h('div', { class: 'main' }, h('span', { class: 'title' }, i.name + (i.dose ? `, ${i.dose}` : '')),
-          h('span', { class: 'small muted' }, [i.kind === 'medication' ? 'Medication' : 'Supplement', TIME_LABEL[i.time_of_day], i.supply != null ? `${i.supply} left` : null, i.active ? null : 'paused'].filter(Boolean).join(', '))),
-        icon('edit', 18))) : [h('p', { class: 'note' }, 'Nothing yet.')]));
-      const reload = async () => draw((await get('health/items', { all: 1 })).items);
-      draw(r.items);
-      sheet.body.append(list, h('button', { class: 'btn primary block', onclick: () => editItem(null, reload) }, 'Add medication or supplement'),
+      let items = [];
+      const draw = () => list.replaceChildren(...(items.length ? items.map(i => h('div', { class: 'list-row sort-row', 'data-key': String(i.id), 'data-label': i.name },
+        gripHandle(i.name),
+        h('button', { class: 'main row-btn', onclick: () => editItem(i, reload) },
+          h('span', { class: 'title' }, i.name + (i.dose ? `, ${i.dose}` : '')),
+          h('span', { class: 'small muted' }, [i.kind === 'medication' ? 'Medication' : 'Supplement', freqText(i),
+            i.frequency !== 'prn' ? i.schedule.times.map(t => hhmm(t.time)).join(' and ') : null,
+            i.supply != null ? `${i.supply} left` : null, i.active ? null : 'paused'].filter(Boolean).join(', '))),
+        h('button', { class: 'icon-btn', 'aria-label': `Edit ${i.name}`, onclick: () => editItem(i, reload) }, icon('edit', 18)))) : [h('p', { class: 'note' }, 'Nothing yet.')]));
+      const reload = async () => { items = (await get('health/items', { all: 1 })).items; draw(); };
+      makeSortable(list, { onChange: async (keys) => {
+        items = keys.map(k => items.find(i => String(i.id) === k));
+        try { await post('health/items/order', { ids: keys.map(Number) }); } catch (e) { toast(e.message, 'error'); }
+      } });
+      await reload();
+      sheet.body.append(h('p', { class: 'note small' }, 'Tap an item to change it. Drag the handle to change the order.'), list,
+        h('button', { class: 'btn primary block', onclick: () => editItem(null, reload) }, 'Add medication or supplement'),
         h('p', { class: 'note small' }, 'Supply is optional. Enter how many doses you have and it counts down as you tick them off.'));
     },
   });
@@ -189,14 +281,77 @@ function manageItems(onDone) {
 
 function editItem(item, onSaved) {
   const sel = (id, value, opts) => h('select', { id, class: 'input' }, opts.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
+  let freq = item?.frequency || 'daily';
+  const sched = structuredClone(item?.schedule || { times: [{ slot: 'morning', time: '08:00' }] });
+  sched.weekdays ??= [new Date().getDay()];
+  sched.every ??= 2;
+  sched.start ??= todayISO();
+  const DEF = { morning: '08:00', midday: '12:30', evening: '19:00', bedtime: '22:00', any: '09:00' };
+  const fill = { daily: ['morning'], twice: ['morning', 'evening'], thrice: ['morning', 'midday', 'evening'], weekly: ['morning'], interval: ['morning'] };
+
+  const chips = h('div', { class: 'pills', role: 'group', 'aria-label': 'How often' });
+  const timesBox = h('div', { class: 'dose-times' });
+  const extra = h('div', { class: 'stack' });
+  const supplyIn = h('input', { id: 'hi-sup', inputmode: 'numeric', value: item?.supply ?? '' });
+  const lasts = h('span', { class: 'small muted' });
+  const remindIn = h('input', { type: 'checkbox', id: 'hi-rem', checked: item ? item.remind : true });
+  const refillIn = h('input', { type: 'checkbox', id: 'hi-ref', checked: item ? item.refill_remind : true });
+
+  const perDay = () => (freq === 'prn' ? null : freq === 'weekly' ? sched.times.length * sched.weekdays.length / 7 : freq === 'interval' ? sched.times.length / sched.every : sched.times.length);
+  const syncLasts = () => {
+    const n = parseInt(supplyIn.value, 10), p = perDay();
+    if (!n || !p) { lasts.textContent = freq === 'prn' && n ? 'Counts down each time you log a dose.' : ''; return; }
+    const d = Math.floor(n / p);
+    const end = new Date(Date.now() + d * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    lasts.textContent = `Lasts about ${d} day${d === 1 ? '' : 's'}, until ${end}`;
+  };
+  const draw = () => {
+    const want = fill[freq];
+    if (want && freq !== sched._for) {
+      // Keep times you've already set; add or drop slots to match the frequency.
+      const keep = sched.times.slice(0, want.length);
+      sched.times = want.map((slot, k) => keep[k] || { slot, time: DEF[slot] });
+      sched._for = freq;
+    }
+    chips.replaceChildren(...FREQS.map(([k, l]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(k === freq), onclick: () => { freq = k; draw(); } }, l)));
+    timesBox.hidden = freq === 'prn';
+    timesBox.replaceChildren(...sched.times.map((t, k) => h('div', { class: 'dose-time' },
+      h('span', { class: 'dt-label' }, sched.times.length > 1 ? `Dose ${k + 1}` : 'Time'),
+      h('select', { class: 'input', 'aria-label': `Dose ${k + 1} part of day`, onchange: (e) => { t.slot = e.target.value; } }, TIMES.map(([v, l]) => h('option', { value: v, selected: v === t.slot }, l))),
+      h('input', { class: 'input', type: 'time', value: t.time, 'aria-label': `Dose ${k + 1} reminder time`, onchange: (e) => {
+        t.time = e.target.value || t.time;
+        const hr = +t.time.slice(0, 2);
+        t.slot = hr < 11 ? 'morning' : hr < 16 ? 'midday' : hr < 21 ? 'evening' : 'bedtime';
+        draw();
+      } }))));
+    extra.replaceChildren(...[
+      freq === 'weekly' ? h('fieldset', { class: 'scale-set' }, h('legend', null, 'On these days'),
+        h('div', { class: 'day-pick' }, DOW.map((d, k) => h('button', { type: 'button', 'aria-pressed': String(sched.weekdays.includes(k)), 'aria-label': DOW_LONG[k], onclick: () => {
+          sched.weekdays = sched.weekdays.includes(k) ? sched.weekdays.filter(x => x !== k) : [...sched.weekdays, k].sort();
+          if (!sched.weekdays.length) sched.weekdays = [k];
+          draw();
+        } }, d)))) : null,
+      freq === 'interval' ? h('div', { class: 'grid-2' },
+        h('label', { class: 'field', for: 'hi-every' }, 'Every how many days', h('input', { id: 'hi-every', inputmode: 'numeric', value: sched.every, onchange: (e) => { sched.every = Math.max(2, Math.min(60, parseInt(e.target.value, 10) || 2)); syncLasts(); } })),
+        h('label', { class: 'field', for: 'hi-start' }, 'Starting', h('input', { id: 'hi-start', type: 'date', value: sched.start, onchange: (e) => { sched.start = e.target.value; } }))) : null,
+      freq === 'prn' ? h('label', { class: 'field', for: 'hi-max' }, 'Most doses in a day (optional)', h('input', { id: 'hi-max', inputmode: 'numeric', value: sched.max ?? '', onchange: (e) => { sched.max = e.target.value ? +e.target.value : null; } })) : null].filter(Boolean));
+    extra.hidden = !extra.children.length;
+    remindIn.closest('label') && (remindIn.closest('label').hidden = freq === 'prn');
+    syncLasts();
+  };
+  supplyIn.addEventListener('input', syncLasts);
+
   const s = openSheet({
     title: item ? 'Edit' : 'Add to your list',
+    tall: true,
     body: h('form', { class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
       const f = e.target;
       const v = (id) => f.querySelector('#' + id).value;
+      const { _for, ...clean } = sched;
       try {
-        await post('health/items/save', { id: item?.id, name: v('hi-name'), dose: v('hi-dose'), kind: v('hi-kind'), time_of_day: v('hi-time'), supply: v('hi-sup') === '' ? null : +v('hi-sup'), active: f.querySelector('#hi-act').checked });
+        await post('health/items/save', { id: item?.id, name: v('hi-name'), dose: v('hi-dose'), kind: v('hi-kind'), frequency: freq, schedule: clean,
+          supply: supplyIn.value === '' ? null : +supplyIn.value, remind: remindIn.checked, refill_remind: refillIn.checked, active: f.querySelector('#hi-act').checked });
         s.close(); toast('Saved'); onSaved?.();
       } catch (err) { toast(err.message, 'error'); }
     } },
@@ -204,22 +359,28 @@ function editItem(item, onSaved) {
       h('div', { class: 'grid-2' },
         h('label', { class: 'field', for: 'hi-dose' }, 'Dose (optional)', h('input', { id: 'hi-dose', value: item?.dose || '', placeholder: '2,000 IU' })),
         h('label', { class: 'field', for: 'hi-kind' }, 'Type', sel('hi-kind', item?.kind || 'supplement', [['supplement', 'Supplement'], ['medication', 'Medication']]))),
-      h('div', { class: 'grid-2' },
-        h('label', { class: 'field', for: 'hi-time' }, 'When', sel('hi-time', item?.time_of_day || 'morning', TIMES)),
-        h('label', { class: 'field', for: 'hi-sup' }, 'Doses on hand (optional)', h('input', { id: 'hi-sup', inputmode: 'numeric', value: item?.supply ?? '' }))),
-      h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'hi-act', checked: item ? item.active : true }), 'Show on the daily checklist'),
+      h('fieldset', { class: 'scale-set' }, h('legend', null, 'How often'), chips),
+      timesBox, extra,
+      h('div', { class: 'grid-2', style: { alignItems: 'end' } },
+        h('label', { class: 'field', for: 'hi-sup' }, 'Doses on hand (optional)', supplyIn), lasts),
+      h('div', { class: 'list' },
+        h('label', { class: 'check-row', for: 'hi-rem' }, h('span', { class: 'main' }, h('span', { class: 'title' }, 'Remind me at each dose'), h('span', { class: 'small muted' }, 'Skipped if already ticked off')), remindIn),
+        h('label', { class: 'check-row', for: 'hi-ref' }, h('span', { class: 'main' }, h('span', { class: 'title' }, 'Refill reminder'), h('span', { class: 'small muted' }, 'When about 7 days of supply are left')), refillIn),
+        h('label', { class: 'check-row', for: 'hi-act' }, h('span', { class: 'main' }, h('span', { class: 'title' }, 'On the daily checklist'), h('span', { class: 'small muted' }, 'Untick to pause it and keep its history')), h('input', { type: 'checkbox', id: 'hi-act', checked: item ? item.active : true }))),
       h('button', { class: 'btn primary block', type: 'submit' }, 'Save'),
       item ? h('button', { class: 'btn block danger', type: 'button', onclick: async () => {
-        if (!(await confirmSheet(`Delete ${item.name}?`, 'This also deletes its taken history. To stop tracking but keep the history, untick "Show on the daily checklist" instead.'))) return;
+        if (!(await confirmSheet(`Delete ${item.name}?`, 'This also deletes its taken history. To stop tracking but keep the history, untick "On the daily checklist" instead.'))) return;
         await post('health/items/delete', { id: item.id }); s.close(); onSaved?.();
       } }, 'Delete') : null),
   });
+  sched._for = item ? freq : null;
+  draw();
 }
 
 /* ---------- measurements ---------- */
 
 function openMeasurementSheet(kind, onDone) {
-  const kinds = [['vo2max', 'VO2 max'], ['bp', 'Blood pressure'], ['body_fat', 'Body fat %'], ['waist', `Waist (${imperial() ? 'in' : 'cm'})`]];
+  const kinds = [['vo2max', 'VO2 max'], ['bp', 'Blood pressure'], ['body_fat', 'Body fat %'], ['waist', `Waist (${imperial() ? 'in' : 'cm'})`]]; // more tape measurements live on the Body screen
   const kindSel = h('select', { class: 'input', id: 'ms-kind' }, kinds.map(([v, l]) => h('option', { value: v, selected: v === (kind || 'vo2max') }, l)));
   const val = h('input', { class: 'input big', id: 'ms-val', inputmode: 'decimal' });
   const val2 = h('input', { class: 'input big', id: 'ms-val2', inputmode: 'numeric' });

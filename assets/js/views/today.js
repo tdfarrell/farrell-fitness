@@ -140,16 +140,18 @@ export async function render(root) {
         : h('p', { class: 'note' }, 'Everything is done for today.'));
   })() : null;
 
-  // Meds and supplements: tap to mark taken.
-  const medsCard = meds && meds.items.length ? (() => {
+  // Meds and supplements: one pill per dose due today, tap to mark taken.
+  const PART = { morning: 'morning', midday: 'midday', evening: 'evening', bedtime: 'bedtime', any: '' };
+  const medsCard = meds && meds.items.some(i => i.doses.length) ? (() => {
     const box = h('div', { class: 'pills' });
-    const draw = (items) => box.replaceChildren(...items.map(i => h('button', { class: 'pill med-pill', 'aria-pressed': String(!!i.taken_at), onclick: async () => {
-      try { const r = await post('health/dose', { item_id: i.id, date: today, taken: !i.taken_at }); draw(r.items); }
-      catch (e) { toast(e.message, 'error'); }
-    } }, i.taken_at ? icon('check', 16) : null, i.name)));
+    const draw = (items) => box.replaceChildren(...items.flatMap(i => i.doses.map(d => h('button', { class: 'pill med-pill', 'aria-pressed': String(!!d.taken_at),
+      'aria-label': `${i.name}${i.doses.length > 1 ? `, ${PART[d.part] || `dose ${d.slot + 1}`}` : ''}, ${d.taken_at ? 'taken' : 'not taken'}`, onclick: async () => {
+        try { const r = await post('health/dose', { item_id: i.id, date: today, slot: d.slot, taken: !d.taken_at }); draw(r.items); }
+        catch (e) { toast(e.message, 'error'); }
+      } }, d.taken_at ? icon('check', 16) : null, i.name, i.doses.length > 1 ? h('span', { class: 'muted', style: { fontWeight: 500 } }, ` ${PART[d.part] || d.slot + 1}`) : null))));
     draw(meds.items);
     return h('section', { class: 'card grow-2', 'aria-label': 'Medications and supplements' },
-      h('div', { class: 'card-head', style: { alignItems: 'center' } }, h('h2', null, 'Meds and supplements'), h('a', { href: '#/health', style: { fontWeight: 600, fontSize: '14px' } }, 'Health')),
+      h('div', { class: 'card-head', style: { alignItems: 'center' } }, h('h2', null, 'Meds and supplements'), h('a', { href: '#/health/meds', style: { fontWeight: 600, fontSize: '14px' } }, 'All')),
       box);
   })() : null;
 

@@ -11,6 +11,8 @@ const PRECACHE = [
   'assets/js/views/progress.js', 'assets/js/views/whoop.js', 'assets/js/views/settings.js',
   'assets/js/views/plans.js', 'assets/js/views/cardio.js', 'assets/js/views/health.js', 'assets/js/views/habits.js',
   'assets/js/views/journal.js', 'assets/js/views/more.js', 'assets/js/quickadd.js',
+  'assets/js/sortable.js', 'assets/js/push.js', 'assets/js/stats.js', 'assets/js/views/foodhome.js', 'assets/js/views/trainhome.js',
+  'assets/js/views/body.js', 'assets/js/views/insights.js', 'assets/js/views/report.js', 'assets/js/views/projection.js', 'assets/js/views/sync.js',
   'icons/icon-v2.svg', 'icons/logo-mark.svg', 'icons/favicon-v2-32.png', 'icons/icon-v2-192.png', 'icons/apple-touch-icon-v2.png',
   'assets/fonts/barlow-latin-400-normal.woff2', 'assets/fonts/barlow-latin-500-normal.woff2', 'assets/fonts/barlow-latin-600-normal.woff2',
   'assets/fonts/barlow-condensed-latin-500-normal.woff2', 'assets/fonts/barlow-condensed-latin-600-normal.woff2', 'assets/fonts/barlow-condensed-latin-700-normal.woff2',
@@ -30,7 +32,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('message', (e) => { if (e.data === 'skipWaiting') self.skipWaiting(); });
 
 // API routes that must never be served from cache.
-const NO_CACHE = /r=(whoop\/connect|whoop\/callback|export|cron)/;
+// Photos and backups are private files: never kept in the offline cache.
+const NO_CACHE = /r=(whoop\/connect|whoop\/callback|export|cron|photos\/file|backups\/download)/;
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
@@ -66,3 +69,29 @@ async function networkFirst(req, cacheName, fallbackUrl) {
     throw err;
   }
 }
+
+/* ---------- reminders (web push) ---------- */
+
+self.addEventListener('push', (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = { body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(m.title || 'Farrell Fitness', {
+    body: m.body || '',
+    tag: m.tag || undefined,
+    icon: 'icons/icon-v2-192.png',
+    badge: 'icons/favicon-v2-32.png',
+    data: { url: m.url || '#/today' },
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const target = new URL('./' + (e.notification.data?.url || '#/today'), self.registration.scope).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) {
+      if (w.url.startsWith(self.registration.scope)) { await w.focus(); try { await w.navigate(target); } catch { w.postMessage({ type: 'open', url: target }); } return; }
+    }
+    await self.clients.openWindow(target);
+  })());
+});

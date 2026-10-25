@@ -1,4 +1,4 @@
-import { h, icon, fmt0, fmt1, todayISO, shortDate, relDay, openSheet, toast, confirmSheet, debounce } from '../ui.js';
+import { h, icon, fmt0, fmt1, todayISO, shortDate, relDay, openSheet, toast, confirmSheet, debounce, relDayLc } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary, markStale } from '../store.js';
 import { addDays } from '../tdee.js';
@@ -8,6 +8,8 @@ const OZ = 28.3495;
 /* ======================= diary screen ======================= */
 
 export async function render(root, params) {
+  // #/food is the overview; #/food/diary is today's log; #/food/YYYY-MM-DD is that day's log.
+  if (!params[0]) return (await import('./foodhome.js')).render(root);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(params[0] || '') ? params[0] : todayISO();
   await loadSummary();
   const { targets, settings } = state;
@@ -62,11 +64,12 @@ export async function render(root, params) {
       h('div', { class: 'diary-grid' }, mealCards)));
 }
 
-/** Diary | Plan switch shared by the food log and meal plans. */
+/** Overview | Diary | Plans switch shared by the food screens. */
 export function foodSwitch(current) {
   return h('nav', { class: 'segmented big', 'aria-label': 'Food sections' },
-    h('a', { href: '#/food', 'aria-current': current === 'diary' ? 'page' : null }, 'Diary'),
-    h('a', { href: '#/plans', 'aria-current': current === 'plan' ? 'page' : null }, 'Plan'));
+    h('a', { href: '#/food', 'aria-current': current === 'overview' ? 'page' : null }, 'Overview'),
+    h('a', { href: '#/food/diary', 'aria-current': current === 'diary' ? 'page' : null }, 'Diary'),
+    h('a', { href: '#/plans', 'aria-current': current === 'plan' ? 'page' : null }, 'Plans'));
 }
 
 function openDayStatus(date, current, refresh) {
@@ -96,9 +99,9 @@ function openMealMenu(date, meal, count, refresh) {
     body: h('div', { class: 'stack' },
       h('button', { class: 'btn block', onclick: async () => {
         const r = await post('diary/copy', { from: y, to: date, meal });
-        s.close(); toast(r.copied ? `Copied ${r.copied} item${r.copied > 1 ? 's' : ''} from ${relDay(y).toLowerCase()}` : `Nothing logged for ${meal.toLowerCase()} ${relDay(y).toLowerCase()}`);
+        s.close(); toast(r.copied ? `Copied ${r.copied} item${r.copied > 1 ? 's' : ''} from ${relDayLc(y)}` : `Nothing logged for ${meal.toLowerCase()} ${relDayLc(y)}`);
         if (r.copied) refresh();
-      } }, `Copy ${meal.toLowerCase()} from ${relDay(y).toLowerCase()}`),
+      } }, `Copy ${meal.toLowerCase()} from ${relDayLc(y)}`),
       h('button', { class: 'btn block', onclick: () => { s.close(); openQuickAdd({ date, meal, onDone: refresh }); } }, 'Quick add calories'),
       count ? h('button', { class: 'btn block danger', onclick: async () => {
         if (!(await confirmSheet(`Clear ${meal.toLowerCase()}?`, `This deletes all ${count} items in ${meal.toLowerCase()} for this day.`, 'Clear'))) return;

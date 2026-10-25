@@ -3,6 +3,7 @@ import { h, icon, fmt0, fmt1, todayISO, shortDate, openSheet, toast, confirmShee
 import { get, post } from '../api.js';
 import { pageHead, loading } from '../components.js';
 import { addDays } from '../tdee.js';
+import { gripHandle, makeSortable } from '../sortable.js';
 
 const SLOTS = [['morning', 'Morning'], ['day', 'During the day'], ['evening', 'Evening']];
 export const KINDS = [
@@ -25,7 +26,7 @@ function subText(x) {
   if (x.kind === 'sleep') return x.value != null ? `Last night ${Math.floor(x.value)}h ${String(Math.round((x.value % 1) * 60)).padStart(2, '0')}m` : `Goal ${fmt1(x.target || 7).replace('.0', '')} h. Waiting for WHOOP`;
   if (x.kind === 'minutes') return x.value != null ? `${fmt0(x.value)} of ${fmt0(x.target)} min` : `${fmt0(x.target || 0)} min goal`;
   if (x.kind === 'count') return x.value != null ? `${fmt0(x.value)} of ${fmt0(x.target)}` : `Goal ${fmt0(x.target || 0)}`;
-  if (x.kind === 'meds') return x.value != null ? `${fmt0(x.value)} taken` : 'Add your list in Health';
+  if (x.kind === 'meds') return x.due != null ? (x.due ? `${fmt0(x.value)} of ${fmt0(x.due)} doses taken` : 'Nothing due today') : 'Add your list in Health';
   if (x.auto) return x.done ? `From your ${SOURCE[x.source]?.toLowerCase() || 'log'}` : `Checks itself from your ${SOURCE[x.source]?.toLowerCase() || 'log'}`;
   return x.done ? 'Done' : 'Not yet';
 }
@@ -125,26 +126,27 @@ export async function render(root, params) {
 }
 
 function manageHabits(all, onDone) {
-  const order = [...all];
+  let order = [...all];
   openSheet({
     title: 'Edit habits',
     tall: true,
     onClose: onDone,
     body: (sheet) => {
       const list = h('div', { class: 'list' });
-      const draw = () => list.replaceChildren(...order.map((x, i) => h('div', { class: 'list-row' },
-        h('button', { class: 'main', style: { background: 'none', border: 0, padding: 0, textAlign: 'left', cursor: 'pointer', color: 'inherit' }, onclick: () => editHabit(x, async () => {
-          const r = await get('habits', { days: 7 }); order.splice(0, order.length, ...r.all); draw();
-        }) },
+      const reload = async () => { order = (await get('habits', { days: 7 })).all; draw(); };
+      const draw = () => list.replaceChildren(...order.map((x) => h('div', { class: 'list-row sort-row', 'data-key': String(x.id), 'data-label': x.name },
+        gripHandle(x.name),
+        h('button', { class: 'main row-btn', onclick: () => editHabit(x, reload) },
           h('span', { class: 'title' }, x.name),
           h('span', { class: 'small muted' }, [SLOTS.find(s => s[0] === x.slot)?.[1], KINDS.find(k => k[0] === x.kind)?.[1], x.active ? null : 'paused'].filter(Boolean).join(', '))),
-        h('button', { class: 'icon-btn', 'aria-label': `Move ${x.name} up`, disabled: i === 0, onclick: async () => {
-          [order[i - 1], order[i]] = [order[i], order[i - 1]]; draw();
-          await post('habits/order', { ids: order.map(o => o.id) });
-        } }, h('span', { style: { display: 'inline-flex', transform: 'rotate(90deg)' } }, icon('left'))))));
+        h('button', { class: 'icon-btn', 'aria-label': `Edit ${x.name}`, onclick: () => editHabit(x, reload) }, icon('edit', 18)))));
+      makeSortable(list, { onChange: async (keys) => {
+        order = keys.map(k => order.find(o => String(o.id) === k));
+        try { await post('habits/order', { ids: keys.map(Number) }); } catch (e) { toast(e.message, 'error'); }
+      } });
       draw();
-      sheet.body.append(h('p', { class: 'note small' }, 'Tap a habit to change it. Habits are grouped by time of day; the arrows change the order within the list.'), list,
-        h('button', { class: 'btn primary block', onclick: () => editHabit(null, async () => { const r = await get('habits', { days: 7 }); order.splice(0, order.length, ...r.all); draw(); }) }, 'Add a habit'));
+      sheet.body.append(h('p', { class: 'note small' }, 'Tap a habit to change it. Drag the handle to change the order; habits show grouped by time of day.'), list,
+        h('button', { class: 'btn primary block', onclick: () => editHabit(null, reload) }, 'Add a habit'));
     },
   });
 }

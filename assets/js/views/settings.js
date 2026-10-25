@@ -3,10 +3,13 @@ import { get, post } from '../api.js';
 import { state, loadSummary, markStale, applyTheme, imperial } from '../store.js';
 import { pageHead } from '../components.js';
 import { installPrompt } from '../pwa.js';
+import { gripHandle, makeSortable } from '../sortable.js';
+import { icon } from '../ui.js';
 
 const LB = 2.20462;
 
-export async function render(root) {
+export async function render(root, params = []) {
+  if (params[0] === 'sync') return (await import('./sync.js')).render(root);
   await loadSummary(true);
   const s = structuredClone(state.settings);
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
@@ -44,6 +47,16 @@ export async function render(root) {
     ? h('div', { class: 'grid-2' }, field('Height (ft)', inp('st-hft', Math.floor(totalIn / 12), { inputmode: 'numeric' })), field('Height (in)', inp('st-hin', Math.round(totalIn % 12), { inputmode: 'numeric' })))
     : field('Height (cm)', inp('st-hcm', Math.round(s.height_cm), { inputmode: 'numeric' }));
 
+  // Meal names: a draggable list instead of comma-separated text.
+  let meals = [...s.meals];
+  const mealList = h('div', { class: 'list meal-list', 'aria-label': 'Meals' });
+  const drawMeals = () => mealList.replaceChildren(...meals.map((m, i) => h('div', { class: 'list-row sort-row', 'data-key': String(i), 'data-label': m || 'meal' },
+    gripHandle(m || 'meal'),
+    h('input', { class: 'input', value: m, maxlength: 32, 'aria-label': `Meal ${i + 1} name`, oninput: (e) => { meals[i] = e.target.value; } }),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${m || 'meal'}`, disabled: meals.length <= 1, onclick: () => { meals.splice(i, 1); drawMeals(); } }, icon('close')))));
+  makeSortable(mealList, { onChange: (keys) => { meals = keys.map(k => meals[+k]); drawMeals(); } });
+  drawMeals();
+
   const form = h('form', { class: 'stack', onsubmit: async (e) => {
     e.preventDefault();
     const v = (id) => form.querySelector('#' + id)?.value;
@@ -59,8 +72,9 @@ export async function render(root) {
       height_cm: imperial() ? ((n('st-hft') || 0) * 12 + (n('st-hin') || 0)) * 2.54 : n('st-hcm'),
       initial_expenditure: v('st-init') ? n('st-init') : null,
       units: unitsNow, theme: v('st-theme'),
-      meals: v('st-meals').split(',').map(x => x.trim()).filter(Boolean),
+      meals: [...mealList.querySelectorAll('input')].map(x => x.value.trim()).filter(Boolean),
       rest_seconds: n('st-rest'),
+      lift_days_goal: n('st-lift'),
     };
     try {
       await post('settings', patch);
@@ -92,8 +106,10 @@ export async function render(root) {
       h('div', { class: 'form-grid' },
         field('Units', sel('st-units', s.units, [['imperial', 'Pounds (lb)'], ['metric', 'Kilograms (kg)']])),
         field('Appearance', sel('st-theme', s.theme, [['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']])),
-        field('Rest timer (seconds)', inp('st-rest', s.rest_seconds, { inputmode: 'numeric' }))),
-      field('Meals', inp('st-meals', s.meals.join(', ')), 'Separate with commas, up to 8.')),
+        field('Rest timer (seconds)', inp('st-rest', s.rest_seconds, { inputmode: 'numeric' })),
+        field('Lifting sessions a week', inp('st-lift', s.lift_days_goal, { inputmode: 'numeric' }), 'Goal shown on the Train overview')),
+      h('div', { class: 'field' }, h('span', null, 'Meals'), h('span', { class: 'tiny muted', style: { fontWeight: 400 } }, 'Drag to reorder, up to 8.'), mealList,
+        h('button', { class: 'btn sm ghost', type: 'button', style: { alignSelf: 'flex-start' }, onclick: () => { if (meals.length < 8) { meals.push(''); drawMeals(); mealList.lastChild?.querySelector('input')?.focus(); } } }, icon('plus', 16), 'Add a meal'))),
     h('button', { class: 'btn primary', type: 'submit', style: { alignSelf: 'flex-start' } }, 'Save settings'));
 
   const whoopSec = h('section', { class: 'card', 'aria-label': 'WHOOP' },
@@ -133,6 +149,12 @@ export async function render(root) {
   root.replaceChildren(
     pageHead(state.user ? `Signed in as ${state.user.username}` : '', 'Settings'),
     h('div', { class: 'stack', style: { maxWidth: '820px' } },
+      h('a', { class: 'linkcard', href: '#/settings/sync' },
+        h('span', { style: { display: 'flex', alignItems: 'center', gap: '14px' } },
+          h('span', { class: 'journal-ic', 'aria-hidden': 'true' }, icon('bell')),
+          h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, h('span', { style: { fontWeight: 600 } }, 'Reminders and sync'),
+            h('span', { class: 'small muted' }, 'Notifications, smart scale, backups'))),
+        icon('right', 20)),
       form,
       whoopSec,
       !standalone ? h('section', { class: 'card', 'aria-label': 'Install' },

@@ -1,25 +1,30 @@
 # Farrell Fitness
 
-A personal nutrition, weight and training tracker that installs on your phone as an app and has a full dashboard on desktop. It estimates your real energy expenditure from what you eat and how your weight changes, and sets weekly calorie and macro targets from it, the way MacroFactor does. It also pulls in WHOOP recovery, HRV, sleep and strain.
+A personal nutrition, training and health tracker that installs on your phone as an app and has a full dashboard on desktop. It estimates your real energy expenditure from what you eat and how your weight changes, and sets weekly calorie and macro targets from it, the way MacroFactor does. It also tracks lifting and cardio, body measurements and progress photos, medications, labs, habits and a journal, pulls in WHOOP recovery, sleep, strain and steps, and sends reminders.
 
-**Runs on:** PHP 8.1+ and MySQL/MariaDB (any cPanel shared host, including Bluehost). No build step and no Node on the server.
+**Runs on:** PHP 8.1+ (with the OpenSSL extension) and MySQL/MariaDB, on any cPanel shared host including Bluehost. No build step, no Composer and no Node on the server.
 
 ## What's in it
 
-- **Food log.** Search the USDA FoodData Central database (basic foods and branded products), scan barcodes (Open Food Facts, then USDA), create your own foods and recipes, quick-add calories, copy meals from yesterday, and mark days as fasted or incomplete.
-- **Weight.** Daily weigh-ins with a smoothed trend line.
-- **Adaptive expenditure.** Every day, the last three weeks of logged intake are compared with how fast your weight is changing (about 7,700 kcal per kg). The estimate starts from a formula and moves toward what your data says, gradually.
-- **Weekly check-ins.** On your chosen day, new targets are proposed from your expenditure, your goal rate and your macro preferences. You apply them or keep the current ones. A manual mode lets you set targets yourself.
-- **Training.** Routines, a set-by-set logger with last-time values, warm-up sets, a rest timer, estimated 1-rep-max history per exercise, and WHOOP workouts alongside.
-- **WHOOP.** OAuth connection, hourly sync of recovery, HRV, resting heart rate, SpO2, skin temperature, sleep stages and need, day strain, WHOOP calories and workouts.
-- **App behavior.** Installable PWA, works offline (writes made offline are queued and synced later), light and dark themes, stays signed in for 180 days.
+- **Food.** An overview with calorie and macro trends, a month calendar colored by how each day landed against its target, recent days and your most-logged foods. A day-by-day diary with USDA FoodData Central search, barcode scanning (Open Food Facts, then USDA), your own foods and recipes, quick add, copy meals and day status (fasted, left out). Meal plans that check a day against your targets without logging it.
+- **Weight and goal projection.** Daily weigh-ins with a smoothed trend, and a projection of when you'll reach a goal weight at different rates, with the calories each rate means.
+- **Adaptive expenditure and weekly check-ins.** The last three weeks of intake are compared with how fast your weight is changing (about 7,700 kcal per kg). On your check-in day, new targets are proposed from the estimate, your goal rate and macro preferences.
+- **Training.** An overview with your next routine, this week, 12-week trends, a calendar and new records. Routines, a set-by-set logger with last-time values, warm-ups and a rest timer, cardio with pace and heart rate zones, and records for every lift and activity.
+- **Body.** Eleven tape measurements, body fat from a tape estimate (US Navy method), a smart scale or entered by hand, lean and fat mass, and progress photos with a camera that shows a faint outline of your last photo, plus side-by-side and slider comparisons.
+- **Health.** Medications and supplements on any schedule (daily, twice or three times a day, weekly, every few days, as needed), with a dose checklist, supply countdown and refill warnings. VO2 max, WHOOP vitals, blood pressure, labs against their reference ranges, and blood sugar.
+- **Habits and journal.** A daily checklist that ticks some habits off on its own (steps, sleep, weigh-in, meds, food, journal) and a journal that saves a snapshot of each day.
+- **Insights and weekly report.** Patterns across sleep, food, training, recovery and mood, each rated by how much data supports it. A weekly report every Sunday.
+- **Reminders.** Push notifications for weighing in, each medication dose, finishing your food log, progress photos, the weekly report and check-ins. They skip themselves when the thing is already done.
+- **Smart scale sync.** Scales that write to Apple Health (Eufy, Withings, Renpho and others) can send weigh-ins here through an iPhone Shortcut.
+- **Backups.** The database is backed up every night; 30 days and 6 monthly copies are kept.
+- **App behavior.** Installable PWA, works offline (changes made offline sync later), light and dark themes, drag-and-drop reordering everywhere, stays signed in for 180 days.
 
 ## Setting it up on Bluehost
 
 ### 1. Prepare the hosting account
 
 1. **Pick the address.** A subdomain such as `fit.yourdomain.com` is simplest. In cPanel (Bluehost's portal may list it under Advanced), open **Domains** and create the subdomain. Note its document root folder, for example `public_html/fit`.
-2. **Turn on HTTPS.** Make sure the subdomain has an SSL certificate (cPanel > SSL/TLS Status; AutoSSL usually covers it within a few minutes). The installable app and secure cookies need HTTPS.
+2. **Turn on HTTPS.** Make sure the address has an SSL certificate (cPanel > SSL/TLS Status; AutoSSL usually covers it within a few minutes). The installable app, reminders and secure cookies need HTTPS.
 3. **Set PHP 8.1 or newer.** cPanel > MultiPHP Manager > select the domain > PHP 8.1, 8.2 or 8.3.
 4. **Create the database.** cPanel > MySQL Databases: create a database, create a user with a strong password, then add the user to the database with **All Privileges**. Write down the full names, which include your cPanel prefix (for example `cpuser_fitness`).
 
@@ -38,7 +43,7 @@ A personal nutrition, weight and training tracker that installs on your phone as
 
 4. Open the **Actions** tab, choose **Test and deploy to Bluehost**, and click **Run workflow** (or push any commit to `main`). The tests run first, and the upload only happens if they pass. Later deploys upload only changed files.
 
-Your secrets never go in the repo. `api/config.php` is created on the server by the installer and is excluded from both git and the deploy.
+Your secrets never go in the repo. `api/config.php` is created on the server by the installer and is excluded from both git and the deploy, as are `data/photos/` and `data/backups/`.
 
 ### 3. Run the installer
 
@@ -60,21 +65,21 @@ The installer creates the tables, your account and a starter exercise library wi
 4. Copy the client ID and secret into the installer, or into `api/config.php` under `whoop`.
 5. In the app, open **Settings > WHOOP > Connect WHOOP**. The first sync pulls 90 days.
 
-### 5. Hourly WHOOP sync
+### 5. The scheduled task (reminders, WHOOP sync, backups)
 
-cPanel > **Cron Jobs** > Once per hour, with the command the installer shows you:
+One cron job does everything on a schedule: it sends reminders that are due, syncs WHOOP about once an hour and makes the nightly backup after 3 am. In cPanel > **Cron Jobs**, add a job that runs **every 15 minutes** (Minute `*/15`, and `*` for hour, day, month and weekday) with the command the installer shows you:
 
 ```
-curl -s "https://fit.yourdomain.com/api/?r=cron/whoop&key=YOUR_CRON_SECRET" >/dev/null
+curl -s "https://fit.yourdomain.com/api/?r=cron/tick&key=YOUR_CRON_SECRET" >/dev/null
 ```
 
 or, without curl:
 
 ```
-php /home/CPANELUSER/public_html/fit/cron/whoop-sync.php
+php /home/CPANELUSER/public_html/fit/cron/tick.php
 ```
 
-The app also syncs when you press **Sync now**.
+`YOUR_CRON_SECRET` is `cron_secret` in `api/config.php`. If you already have the old hourly `cron/whoop` job, replace it with this one. **Settings > Reminders and sync** warns you if the task hasn't run in the last 3 hours.
 
 ### 6. Put it on your phone
 
@@ -82,12 +87,35 @@ The app also syncs when you press **Sync now**.
 - **Android:** open it in Chrome > menu > **Install app**.
 - **Desktop:** Chrome and Edge show an install icon in the address bar; or just bookmark it. Screens 1024 px and wider get the sidebar dashboard.
 
+### 7. Turn on reminders
+
+Open the app **from the Home Screen icon** (on iPhone, notifications only work in the installed app, iOS 16.4 or later), go to **More > Reminders and sync**, and tap **Turn on reminders**. Allow notifications when asked, then tap **Send a test**. Turn reminders on separately on each device you want them on. Each reminder's time can be changed there; medication reminders use the dose times in each item's schedule.
+
+### 8. Smart scale (optional)
+
+For a scale that syncs to Apple Health, such as Eufy (EufyLife > Me > Apple Health):
+
+1. In the app, **More > Reminders and sync > Smart scale > Set up the Shortcut**. This makes a private sync key and shows it once, with the address to send to.
+2. In the iPhone **Shortcuts** app, make a shortcut with these actions:
+   - **Find Health Samples** where Type is Weight, sorted by Start Date, Latest First, Limit 1.
+   - **Get Details of Health Samples**: Value. Add two more for Unit and Start Date.
+   - **Find Health Samples** where Type is Body Fat Percentage, Latest First, Limit 1, then **Get Details**: Value (skip if your scale has no body fat).
+   - **Get Contents of URL** with the address. Method POST, Request Body JSON, with fields `key` (Text, your sync key), `weight` (Number), `unit` (Text), `date` (Text, the Start Date) and `body_fat` (Number).
+3. In Shortcuts > **Automation**, add a Time of Day automation (for example 9:00 am daily) or App > your scale app > Is Closed, set to Run Immediately.
+
+Running it twice is harmless; each day keeps its newest reading. Reset the key in the app to stop a Shortcut from working.
+
 ## Day-to-day tips
 
 - Weigh in each morning; the trend smooths daily water swings.
-- Log everything you eat. If you know a day is incomplete, open the food log for that day > **Day options** > **Leave out**, so it doesn't skew expenditure. Mark fasting days as **Fasted**.
-- The estimate needs about three weeks of data to settle. If you already know your expenditure from MacroFactor, enter it under **Settings > About you > Starting expenditure** to skip the warm-up.
-- **Settings > Download all my data** exports everything as JSON.
+- Log everything you eat. If a day is incomplete, open it in the food log > **Day options** > **Leave out**, so it doesn't skew expenditure. Mark fasting days as **Fasted**.
+- The estimate needs about three weeks of data to settle. If you already know your expenditure from MacroFactor, enter it under **Settings > About you > Starting expenditure**.
+- Measure on the same day each week or two, first thing in the morning. Take progress photos in the same spot and light.
+- **Settings > Download all my data** exports everything as JSON. Progress photos are listed there; the images stay on the server.
+
+## Restoring a backup
+
+Backups are in `data/backups/` on the server, or download the latest from **More > Reminders and sync > Backups**. They're gzipped SQL files. To restore one, open cPanel > **phpMyAdmin**, select the database, choose **Import** and upload the `.sql.gz` file. It replaces every table with the copy from the backup. Progress photos are files in `data/photos/` and aren't part of the database backup; include that folder if you copy the site elsewhere.
 
 ## Local development
 
@@ -96,28 +124,38 @@ cp api/config.sample.php api/config.php   # or run install.php and choose SQLite
 php -S 127.0.0.1:8080 -t .
 php tests/seed_demo.php                    # optional: 10 weeks of sample data (SQLite only)
 node tests/tdee.test.mjs                   # expenditure engine simulations
+node tests/stats.test.mjs                  # insights, body fat and calendar helpers
 php tests/parsers_test.php                 # USDA / Open Food Facts / WHOOP parsing
+php tests/api_test.php                     # every API route over HTTP, including database upgrades
+php tests/webpush_test.php                 # push encryption, checked by Node's crypto
 ```
+
+`FF_TEST_MYSQL="host;db;user;pass" php tests/api_test.php` runs the API tests against MySQL or MariaDB (the database is emptied first).
 
 ## Layout
 
 ```
-index.html, sw.js, manifest.webmanifest   app shell, offline support, install metadata
+index.html, sw.js, manifest.webmanifest   app shell, offline support and push notifications, install metadata
 assets/css/app.css                         design tokens (light and dark) and components
 assets/js/tdee.js                          adaptive expenditure and target math
-assets/js/views/                           Today, Food, Weight, Train, Progress, WHOOP, Settings
+assets/js/stats.js                         statistics and calendar helpers for Insights and the overviews
+assets/js/sortable.js                      drag to reorder (touch, mouse and keyboard)
+assets/js/push.js                          turning reminders on and off on a device
+assets/js/views/                           one file per screen
 api/index.php                              JSON API router (/api/?r=route)
-api/lib/                                   database, auth, foods (USDA/OFF), WHOOP sync
+api/lib/                                   database, auth, foods, WHOOP, health, photos, push, reminders, backups, scale sync
 install.php                                one-time setup
-cron/whoop-sync.php                        command-line sync for cron
+cron/tick.php                              the scheduled task, for cPanel cron
 .github/workflows/deploy.yml               test, then FTPS deploy on push to main
 ```
 
 ## Security notes
 
-- Passwords are hashed with PHP's `password_hash`. Sign-in is rate-limited per IP.
+- Passwords are hashed with PHP's `password_hash`. Sign-in and scale-sync attempts are rate-limited per IP.
 - Sessions use HttpOnly, SameSite cookies. The "stay signed in" token is stored hashed and rotated on every use.
-- Every write request must carry a custom header, which blocks cross-site form attacks.
+- Every write request from the app must carry a custom header, which blocks cross-site form attacks. The scale endpoint instead requires its own key, stored hashed.
+- Progress photos and backups are in `data/`, which the web server never serves; photos go only to their signed-in owner.
+- Push messages are encrypted for each device (RFC 8291) and signed with the app's own VAPID key, made on first use.
 - `.htaccess` forces HTTPS and blocks `api/config.php`, `api/lib/`, `data/`, `cron/`, `tests/` and dotfiles from the web.
 
 Fonts: Barlow and Barlow Condensed, SIL Open Font License (`assets/fonts/OFL.txt`).

@@ -15,7 +15,7 @@
     { "src": "icons/icon-v2-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Log food", "url": "./#/food", "icons": [{ "src": "icons/icon-v2-192.png", "sizes": "192x192" }] },
+    { "name": "Log food", "url": "./#/food/diary", "icons": [{ "src": "icons/icon-v2-192.png", "sizes": "192x192" }] },
     { "name": "Log weight", "url": "./#/weight", "icons": [{ "src": "icons/icon-v2-192.png", "sizes": "192x192" }] },
     { "name": "Start workout", "url": "./#/train/new", "icons": [{ "src": "icons/icon-v2-192.png", "sizes": "192x192" }] }
   ]

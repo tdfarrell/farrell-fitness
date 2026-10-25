@@ -4,6 +4,7 @@ import { state, loadSummary, wUnit, liftDisplay, fromDisplayW, toDisplayW } from
 import { pageHead, loading } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
 import { trainSwitch, renderCardio, renderCardioForm, renderProgress } from './cardio.js';
+import { gripHandle, makeSortable } from '../sortable.js';
 
 const ACTIVE_KEY = 'ff_active_workout_v1';
 const histCache = new Map();
@@ -36,7 +37,8 @@ export async function render(root, params) {
   if (a === 'active') return renderActive(root);
   if (a === 'exercise' && b) return renderExercise(root, +b);
   if (a && /^\d+$/.test(a)) return renderSaved(root, +a);
-  return renderList(root);
+  if (a === 'strength') return renderList(root);
+  return (await import('./trainhome.js')).render(root);
 }
 
 /* ---------- list ---------- */
@@ -112,14 +114,16 @@ function editRoutine(r, exs, onDone) {
       const nameIn = h('input', { id: 'rt-name', value: r?.name || '', required: true });
       const list = h('div', { class: 'list' });
       const byId = Object.fromEntries(exs.map(e => [e.id, e]));
-      const draw = () => list.replaceChildren(...chosen.map((id, i) => h('div', { class: 'list-row' },
-        h('span', { class: 'title' }, byId[id]?.name || 'Exercise'),
-        h('div', null,
-          h('button', { class: 'icon-btn', 'aria-label': 'Move up', disabled: i === 0, onclick: () => { [chosen[i - 1], chosen[i]] = [chosen[i], chosen[i - 1]]; draw(); } }, icon('left')),
-          h('button', { class: 'icon-btn', 'aria-label': 'Remove', onclick: () => { chosen.splice(i, 1); draw(); } }, icon('close'))))));
+      // Rows carry their position as the key, so duplicates of one exercise reorder correctly.
+      const draw = () => list.replaceChildren(...chosen.map((id, i) => h('div', { class: 'list-row sort-row', 'data-key': String(i), 'data-label': byId[id]?.name || 'Exercise' },
+        gripHandle(byId[id]?.name || 'exercise'),
+        h('span', { class: 'title', style: { flex: 1 } }, byId[id]?.name || 'Exercise'),
+        h('button', { class: 'icon-btn', 'aria-label': `Remove ${byId[id]?.name || 'exercise'}`, onclick: () => { chosen.splice(i, 1); draw(); } }, icon('close')))));
+      makeSortable(list, { onChange: (keys) => { const next = keys.map(k => chosen[+k]); chosen.splice(0, chosen.length, ...next); draw(); } });
       draw();
       sheet.body.append(
         h('label', { class: 'field', for: 'rt-name' }, 'Name', nameIn),
+        chosen.length ? h('p', { class: 'note small' }, 'Drag the handle to change the order.') : null,
         list,
         h('button', { class: 'btn block', onclick: () => pickExercise((ex) => { chosen.push(ex.id); draw(); }) }, 'Add exercise'),
         h('button', { class: 'btn primary block', onclick: async () => {
@@ -287,9 +291,25 @@ function renderActive(root) {
     const ex = w.exercises[xi];
     const sh = openSheet({ title: ex.name, body: h('div', { class: 'stack' },
       h('a', { class: 'btn block', href: `#/train/exercise/${ex.exercise_id}`, onclick: () => sh.close() }, 'History and progress'),
-      xi > 0 ? h('button', { class: 'btn block', onclick: () => { w.exercises.splice(xi - 1, 0, w.exercises.splice(xi, 1)[0]); save(); sh.close(); drawCards(); } }, 'Move up') : null,
+      w.exercises.length > 1 ? h('button', { class: 'btn block', onclick: () => { sh.close(); reorderSheet(); } }, 'Reorder exercises') : null,
       h('button', { class: 'btn block', onclick: () => { sh.close(); pickExercise((n) => { w.exercises[xi] = { exercise_id: n.id, name: n.name, sets: ex.sets.map(s => ({ ...s, done: false })) }; save(); drawCards(); }); } }, 'Replace exercise'),
       h('button', { class: 'btn block danger', onclick: () => { w.exercises.splice(xi, 1); save(); sh.close(); drawCards(); } }, 'Remove exercise')) });
+  };
+
+  const reorderSheet = () => {
+    openSheet({
+      title: 'Reorder exercises',
+      onClose: () => drawCards(),
+      body: (sheet) => {
+        const list = h('div', { class: 'list' });
+        const draw = () => list.replaceChildren(...w.exercises.map((ex, i) => h('div', { class: 'list-row sort-row', 'data-key': String(i), 'data-label': ex.name },
+          gripHandle(ex.name),
+          h('div', { class: 'main' }, h('span', { class: 'title' }, ex.name), h('span', { class: 'small muted' }, `${ex.sets.filter(s => s.done).length} of ${ex.sets.length} sets done`)))));
+        makeSortable(list, { onChange: (keys) => { w.exercises = keys.map(k => w.exercises[+k]); save(); draw(); } });
+        draw();
+        sheet.body.append(h('p', { class: 'note small' }, 'Drag the handle to move an exercise.'), list, h('button', { class: 'btn primary block', onclick: () => sheet.close() }, 'Done'));
+      },
+    });
   };
 
   const finish = async () => {

@@ -232,3 +232,13 @@ function whoop_status(int $uid): array {
         'redirect_uri' => whoop_redirect_uri(),
     ];
 }
+
+/** Sync every connected account (cron). */
+function run_whoop_cron(): array {
+    $out = [];
+    foreach (q_all('SELECT user_id FROM whoop_tokens') as $r) {
+        try { $out[$r['user_id']] = whoop_sync((int) $r['user_id']); }
+        catch (Throwable $e) { $out[$r['user_id']] = ['error' => $e->getMessage()]; }
+    }
+    return ['synced' => $out];
+}

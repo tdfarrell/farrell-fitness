@@ -14,7 +14,7 @@ $tmp = sys_get_temp_dir() . '/ff_api_' . getmypid();
 // FF_TEST_MYSQL="host;db;user;pass" runs the same checks against MySQL/MariaDB (the database is emptied first).
 $my = getenv('FF_TEST_MYSQL') ? explode(';', getenv('FF_TEST_MYSQL')) : null;
 $dbCfg = $my ? ['driver' => 'mysql', 'host' => $my[0], 'name' => $my[1], 'user' => $my[2], 'pass' => $my[3] ?? ''] : ['driver' => 'sqlite', 'sqlite_path' => "$tmp.sqlite"];
-$cfg = ['db' => $dbCfg, 'base_url' => 'http://127.0.0.1:8099', 'timezone' => 'America/New_York',
+$cfg = ['db' => $dbCfg, 'data_dir' => "$tmp-data", 'base_url' => 'http://127.0.0.1:8099', 'timezone' => 'America/New_York',
     'usda_api_key' => 'TEST', 'whoop' => ['client_id' => '', 'client_secret' => ''], 'cron_secret' => str_repeat('x', 32)];
 file_put_contents("$tmp.php", '<?php return ' . var_export($cfg, true) . ';');
 putenv("FF_CONFIG=$tmp.php");
@@ -34,19 +34,26 @@ db_insert('whoop_workouts', ['user_id' => 1, 'whoop_id' => 'w-lift-1', 'date' =>
 
 $port = 8099;
 $proc = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', dirname(__DIR__)], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, ['FF_CONFIG' => "$tmp.php"] + getenv());
-register_shutdown_function(function () use ($proc, $tmp) { proc_terminate($proc); foreach (glob("$tmp.*") as $f) @unlink($f); });
+register_shutdown_function(function () use ($proc, $tmp) {
+    proc_terminate($proc);
+    foreach (glob("$tmp.*") as $f) @unlink($f);
+    if (is_dir("$tmp-data")) exec('rm -rf ' . escapeshellarg("$tmp-data"));
+});
 for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) usleep(100000);
 
 $jar = "$tmp.cookies";
-function api(string $route, ?array $body = null, array $query = []) {
+function api(string $route, ?array $body = null, array $query = [], array $opts = []) {
     global $port, $jar;
     $ch = curl_init("http://127.0.0.1:$port/api/?" . http_build_query(['r' => $route] + $query));
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEJAR => $jar, CURLOPT_COOKIEFILE => $jar,
-        CURLOPT_HTTPHEADER => ['X-FF-Request: 1', 'Content-Type: application/json']]);
+    $headers = $opts['headers'] ?? ['X-FF-Request: 1', 'Content-Type: application/json'];
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $headers]);
+    if (empty($opts['anonymous'])) curl_setopt_array($ch, [CURLOPT_COOKIEJAR => $jar, CURLOPT_COOKIEFILE => $jar]);
     if ($body !== null) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body)); }
     $res = curl_exec($ch);
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
     curl_close($ch);
+    if (!empty($opts['raw'])) return [$status, $res, $type];
     return [$status, json_decode((string) $res, true)];
 }
 
@@ -161,9 +168,163 @@ check(count($r['entries']) === 1 && in_array('Training', $r['tags'], true), 'jou
 [, $r] = api('habits', null, ['date' => $today]);
 check((bool) array_values(array_filter($r['habits'], fn($x) => $x['kind'] === 'journal'))[0]['done'], 'journal habit checks itself');
 
+
+/* medication schedules */
+[$st, $r] = api('health/items/save', ['name' => 'Metformin', 'dose' => '500 mg', 'kind' => 'medication', 'frequency' => 'twice', 'supply' => 18,
+    'schedule' => ['times' => [['slot' => 'morning', 'time' => '08:00'], ['slot' => 'evening', 'time' => '19:00']]]]);
+$met = $r['item'] ?? [];
+check($st === 200 && $met['frequency'] === 'twice' && count($met['schedule']['times']) === 2 && $met['supply_days'] === 9, 'twice-daily item: two dose times, supply lasts 9 days');
+$notToday = ((int) date('w') + 2) % 7;
+[, $r] = api('health/items/save', ['name' => 'Weekly shot', 'kind' => 'medication', 'frequency' => 'weekly', 'schedule' => ['weekdays' => [$notToday]]]);
+$wk = $r['item'];
+[, $r] = api('health/items/save', ['name' => 'Ibuprofen', 'dose' => '200 mg', 'frequency' => 'prn', 'supply' => 20, 'schedule' => ['max' => 3]]);
+$prn = $r['item'];
+[, $r] = api('health/items/save', ['name' => 'B12', 'frequency' => 'interval', 'schedule' => ['every' => 3, 'start' => $today]]);
+$b12 = $r['item'];
+[, $r] = api('health/items', null, ['date' => $today]);
+$by = array_column($r['items'], null, 'id');
+check(count($by[$met['id']]['doses']) === 2 && !$by[$wk['id']]['due'] && $by[$wk['id']]['next_due'] > $today && $by[$b12['id']]['due'], 'due today: twice-daily has 2 doses, weekly not due (next date given), every-3-days due on its start');
+[$st, $r] = api('health/dose', ['item_id' => $met['id'], 'date' => $today, 'slot' => 1, 'taken' => true]);
+$m2 = array_column($r['items'], null, 'id')[$met['id']];
+check($st === 200 && $m2['doses'][1]['taken_at'] && !$m2['doses'][0]['taken_at'] && $m2['taken_at'] === null && $m2['supply'] === 17, 'mark the second dose: first still open, supply 17');
+[$st] = api('health/dose', ['item_id' => $met['id'], 'date' => $today, 'slot' => 5, 'taken' => true]);
+check($st === 400, 'unknown dose slot rejected');
+api('health/dose', ['item_id' => $prn['id'], 'date' => $today, 'taken' => true]);
+[, $r] = api('health/dose', ['item_id' => $prn['id'], 'date' => $today, 'taken' => true]);
+$p = array_column($r['items'], null, 'id')[$prn['id']];
+check(count($p['taken_today']) === 2 && $p['supply'] === 18 && $p['doses'] === [], 'as-needed: each tap logs another dose');
+[, $r] = api('habits', null, ['date' => $today]);
+$medsHabit = array_values(array_filter($r['habits'], fn($x) => $x['kind'] === 'meds'))[0];
+check(!$medsHabit['done'] && $medsHabit['due'] === 4 && $medsHabit['value'] == 2, 'meds habit counts scheduled doses (vitamin D, 2 metformin, B12), not as-needed');
+api('health/dose', ['item_id' => $met['id'], 'date' => $today, 'slot' => 0, 'taken' => true]);
+api('health/dose', ['item_id' => $b12['id'], 'date' => $today, 'taken' => true]);
+[, $r] = api('habits', null, ['date' => $today]);
+check(array_values(array_filter($r['habits'], fn($x) => $x['kind'] === 'meds'))[0]['done'], 'meds habit done once every due dose is taken');
+[$st] = api('health/items/order', ['ids' => [$prn['id'], $vd, $met['id']]]);
+[, $r] = api('health/items', null, ['all' => 1]);
+check($st === 200 && $r['items'][0]['id'] === $prn['id'], 'reorder the meds list');
+
+/* body measurements */
+[$st, $r] = api('measurements/save_many', ['date' => $today, 'values' => ['waist' => 90.8, 'neck' => 40, 'hips' => 102.9, 'arm_l' => 38.7, 'body_fat' => 18.6]]);
+check($st === 200 && count(array_filter($r['measurements'], fn($x) => $x['date'] === $today)) >= 5, 'save a set of body measurements');
+[$st] = api('measurements/save_many', ['date' => $yday, 'values' => ['waist' => 91, 'neck' => 400]]);
+[, $r] = api('measurements', null, ['kind' => 'waist']);
+check($st === 400 && count($r['measurements']) === 1, 'one bad value rejects the whole set');
+api('measurements/save_many', ['date' => $today, 'values' => ['arm_l' => null]]);
+[$st, $r] = api('body');
+check($st === 200 && !in_array('arm_l', array_column($r['measurements'], 'kind'), true) && in_array('hips', array_column($r['measurements'], 'kind'), true), 'body screen data; a blank value clears it');
+
+/* progress photos */
+$img = imagecreatetruecolor(60, 90); imagefill($img, 0, 0, imagecolorallocate($img, 120, 140, 160));
+ob_start(); imagejpeg($img, null, 80); $jpeg = ob_get_clean();
+[$st, $r] = api('photos/upload', ['date' => $today, 'pose' => 'front', 'data' => 'data:image/jpeg;base64,' . base64_encode($jpeg), 'thumb' => base64_encode($jpeg)]);
+$ph = $r['photo'] ?? [];
+check($st === 200 && $ph['width'] === 60 && $ph['height'] === 90, 'upload a progress photo');
+[$st] = api('photos/upload', ['date' => $today, 'pose' => 'front', 'data' => base64_encode('<?php echo 1; ?>' . str_repeat('x', 200))]);
+check($st === 400, 'non-JPEG upload rejected');
+[$st, $raw, $type] = api('photos/file', null, ['id' => $ph['id'], 'size' => 'thumb'], ['raw' => true]);
+check($st === 200 && $type === 'image/jpeg' && $raw === $jpeg, 'photo served to its owner');
+[$st] = api('photos/file', null, ['id' => $ph['id']], ['raw' => true, 'anonymous' => true]);
+check($st === 401, 'photo not served without signing in');
+[, $r] = api('photos/upload', ['date' => $today, 'pose' => 'front', 'data' => base64_encode($jpeg)]);
+[, $list] = api('photos');
+check(count($list['photos']) === 1 && $list['photos'][0]['id'] === $r['photo']['id'] && count(glob("$tmp-data/photos/u1/*")) === 1, 'a new photo replaces the same pose and day, old file removed');
+api('photos/delete', ['id' => $r['photo']['id']]);
+check(count(glob("$tmp-data/photos/u1/*")) === 0, 'delete removes the file');
+api('photos/upload', ['date' => $today, 'pose' => 'side', 'data' => base64_encode($jpeg)]);
+
+/* smart scale sync */
+[, $r] = api('sync/status');
+check($r['has_key'] === false, 'no sync key yet');
+[$st, $r] = api('sync/key', []);
+$key = $r['key'] ?? '';
+check($st === 200 && str_starts_with($key, 'ffs_'), 'make a sync key');
+[$st] = api('sync/scale', ['weight' => 195.8], [], ['headers' => ['Content-Type: application/json'], 'anonymous' => true]);
+check($st === 401, 'scale sync needs the key');
+[$st, $r] = api('sync/scale', ['key' => $key, 'weight' => '195.8 lb', 'body_fat' => 0.191, 'date' => date('M j, Y', strtotime('-2 days')) . ' at 6:58 AM'], [], ['headers' => ['Content-Type: application/json'], 'anonymous' => true]);
+[, $w] = api('weights', null, ['from' => date('Y-m-d', strtotime('-3 days'))]);
+$sw = array_values(array_filter($w['weights'], fn($x) => $x['source'] === 'scale'))[0] ?? null;
+check($st === 200 && $sw && abs($sw['weight_kg'] - 88.81) < 0.01 && $sw['body_fat'] == 19.1 && $sw['date'] === date('Y-m-d', strtotime('-2 days')), 'Shortcut-style weight, fraction body fat and date are understood');
+[$st, $r] = api('sync/scale', ['samples' => [['weight' => 88.5, 'unit' => 'kg', 'date' => $yday], ['weight' => 88.4, 'unit' => 'kg', 'date' => $today]]], [], ['headers' => ['Content-Type: application/json', "Authorization: Bearer $key"], 'anonymous' => true]);
+[, $s] = api('sync/status');
+check($st === 200 && $r['saved'] === 2 && $s['uses'] === 2 && $s['count'] === 3, 'several samples with a bearer key');
+
+/* push and reminders */
+require_once __DIR__ . '/../api/lib/auth.php';
+foreach (['settings', 'cardio', 'health', 'habits', 'photos', 'backup', 'push', 'reminders', 'whoop'] as $lib) require_once __DIR__ . "/../api/lib/$lib.php";
+[$st, $r] = api('push/key');
+check($st === 200 && strlen(b64u_dec($r['public_key'])) === 65, 'VAPID public key served');
+[, $uaPub] = p256_new();
+[$st, $r] = api('push/subscribe', ['endpoint' => 'https://push.example.test/sub/abc', 'keys' => ['p256dh' => b64u($uaPub), 'auth' => b64u(random_bytes(16))], 'device' => 'Test phone']);
+check($st === 200 && $r['devices'] === 1, 'subscribe this device');
+[$st] = api('push/subscribe', ['endpoint' => 'http://insecure.test/x', 'keys' => ['p256dh' => b64u($uaPub), 'auth' => b64u(random_bytes(16))]]);
+check($st === 400, 'insecure endpoint rejected');
+$now = time();
+[$st, $r] = api('settings', ['reminders' => ['weigh_in' => ['time' => date('H:i', $now - 120)], 'food' => ['time' => '25:99']]]);
+check($st === 200 && $r['settings']['reminders']['food']['time'] === '20:30' && $r['settings']['reminders']['meds']['on'] === true, 'reminder settings saved and cleaned');
+[, $r] = api('health/items/save', ['id' => $met['id'], 'name' => 'Metformin', 'frequency' => 'twice', 'schedule' => ['times' => [['slot' => 'morning', 'time' => '08:00'], ['slot' => 'evening', 'time' => date('H:i', $now - 60)]]]]);
+api('health/dose', ['item_id' => $met['id'], 'date' => $today, 'slot' => 1, 'taken' => false]);
+$sent = [];
+$GLOBALS['ff_http_mock'] = function ($method, $url, $headers, $body) use (&$sent) { $sent[] = compact('url', 'headers', 'body'); return [201, '']; };
+$keysSent = run_reminders_for(1, $now);
+check(in_array('med:' . $met['id'] . ':1', $keysSent, true) && !in_array('weigh_in', $keysSent, true), 'reminder for an untaken dose; weigh-in skipped because it is logged');
+check(isset($sent[0]) && $sent[0]['headers']['Content-Encoding'] === 'aes128gcm' && str_starts_with($sent[0]['headers']['Authorization'], 'vapid t='), 'push request is encrypted and VAPID-signed');
+$before = count($sent);
+run_reminders_for(1, $now + 300);
+check(count($sent) === $before, 'a reminder is sent once a day');
+$GLOBALS['ff_http_mock'] = fn() => [410, ''];
+push_to_user(1, ['title' => 'x']);
+check((int) q_val('SELECT COUNT(*) FROM push_subscriptions') === 0, 'expired subscription removed on 410');
+unset($GLOBALS['ff_http_mock']);
+
+/* backups */
+[$st, $r] = api('backups/run', []);
+check($st === 200 && $r['count'] >= 1 && $r['last']['size'] > 100, 'back up now');
+[$st, $raw, $type] = api('backups/download', null, ['name' => 'latest'], ['raw' => true]);
+check($st === 200 && substr($raw, 0, 2) === "\x1f\x8b" && $type === 'application/gzip', 'download the latest backup (gzip)');
+if ($my) {
+    $sql = gzdecode($raw);
+    check(str_contains($sql, 'CREATE TABLE `med_doses`') && preg_match('/INSERT INTO `med_doses` VALUES/', $sql) && str_contains($sql, 'SET FOREIGN_KEY_CHECKS = 1'), 'MySQL backup is a complete SQL dump');
+} else {
+    $restored = "$tmp-restore.sqlite";
+    file_put_contents($restored, gzdecode($raw));
+    $rp = new PDO("sqlite:$restored");
+    check((int) $rp->query('SELECT COUNT(*) FROM med_doses')->fetchColumn() > 0, 'backup restores to a working database');
+    $rp = null;
+}
+[$st] = api('backups/download', null, ['name' => '../config.php'], ['raw' => true]);
+check($st === 404, 'backup download only serves backup files');
+[$st, $r] = api('cron/tick', null, ['key' => str_repeat('x', 32)], ['anonymous' => true]);
+check($st === 200 && isset($r['reminders']), 'cron tick runs');
+[$st] = api('cron/tick', null, ['key' => 'wrong'], ['anonymous' => true]);
+check($st === 403, 'cron tick needs the key');
+
+/* weekly report, insights, overviews */
+[$st, $r] = api('report/week', null, ['date' => $today]);
+check($st === 200 && $r['training']['lifts'] >= 1 && isset($r['previous'], $r['habits']), 'weekly report totals');
+// Bench: 100 x 5 yesterday, 100 x 6 today. It's a new record only when yesterday falls in the previous week.
+check(count(array_filter($r['records'], fn($x) => $x['kind'] === 'e1rm' && $x['name'] === 'Bench press')) === (date('N') === '1' ? 1 : 0), 'records are judged against earlier weeks only');
+[$st, $r] = api('insights/data', null, ['from' => date('Y-m-d', strtotime('-7 days'))]);
+check($st === 200 && !empty($r['days'][$today]['lifts']) && ($r['days'][$today]['journal']['mood'] ?? null) === 4 && !empty($r['days'][$yday]['cardio']), 'insights per-day data: lifts, cardio and journal');
+[$st, $r] = api('foods/top');
+check($st === 200 && count($r['foods']) === 2, 'most-logged foods');
+[, $pl] = api('plans');
+[$st] = api('plans/order', ['ids' => array_column($pl['plans'], 'id')]);
+check($st === 200, 'reorder meal plans');
+[, $sm] = api('summary', null, ['from' => $today, 'to' => $today]);
+check(array_key_exists('fiber', $sm['days'][0]), 'summary includes fiber');
+
 /* export */
 [$st, $r] = api('export');
 check($st === 200 && count($r['journal']) === 1 && count($r['lab_results']) === 2 && count($r['meal_plans']) === 1 && isset($r['habits'], $r['blood_sugar'], $r['measurements'], $r['cardio']), 'export includes the new data');
+check(count($r['progress_photos']) === 1 && isset($r['medications_and_supplements'][0]['schedule']) && count($r['doses_taken']) >= 4, 'export includes photos (list only), med schedules and doses');
+
+/* upgrading from version 2: old doses move to the new table */
+q('DELETE FROM med_doses');
+db_insert('health_doses', ['user_id' => 1, 'item_id' => $vd, 'date' => $yday, 'taken_at' => time()]);
+q("UPDATE meta SET v = '2' WHERE k = 'schema_version'");
+api('health/items');
+check((int) q_val('SELECT COUNT(*) FROM med_doses WHERE item_id = ? AND date = ? AND slot = 0', [$vd, $yday]) === 1 && (int) q_val("SELECT v FROM meta WHERE k = 'schema_version'") === SCHEMA_VERSION, 'version 2 database: doses copied to the new table');
 
 echo $fails ? "\n$fails FAILED\n" : "\nAll API tests passed\n";
 exit($fails ? 1 : 0);

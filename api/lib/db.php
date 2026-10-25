@@ -357,6 +357,55 @@ function schema_sql(string $driver): array {
             updated_at INT NOT NULL,
             UNIQUE (user_id, date)
         )",
+        // Added in schema version 3.
+        "med_doses (
+            id $pk,
+            user_id INT NOT NULL,
+            item_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            slot INT NOT NULL DEFAULT 0,
+            taken_at INT NOT NULL,
+            UNIQUE (item_id, date, slot)
+        )",
+        "progress_photos (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            pose VARCHAR(8) NOT NULL,
+            file VARCHAR(80) NOT NULL,
+            thumb VARCHAR(80),
+            width INT,
+            height INT,
+            created_at INT NOT NULL,
+            UNIQUE (user_id, date, pose)
+        )",
+        "push_subscriptions (
+            id $pk,
+            user_id INT NOT NULL,
+            endpoint_hash VARCHAR(64) NOT NULL UNIQUE,
+            endpoint TEXT NOT NULL,
+            p256dh VARCHAR(160) NOT NULL,
+            auth VARCHAR(48) NOT NULL,
+            device VARCHAR(120),
+            created_at INT NOT NULL,
+            last_ok_at INT
+        )",
+        "reminder_log (
+            id $pk,
+            user_id INT NOT NULL,
+            rkey VARCHAR(80) NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            sent_at INT NOT NULL,
+            UNIQUE (user_id, rkey, date)
+        )",
+        "sync_keys (
+            id $pk,
+            user_id INT NOT NULL,
+            key_hash VARCHAR(64) NOT NULL UNIQUE,
+            created_at INT NOT NULL,
+            last_used_at INT,
+            uses INT NOT NULL DEFAULT 0
+        )",
     ];
     $sql = array_map(fn($x) => "CREATE TABLE IF NOT EXISTS $x$tail", $t);
     $idx = [
@@ -369,6 +418,8 @@ function schema_sql(string $driver): array {
         'labs_user_date' => 'labs (user_id, date)',
         'glucose_user_date' => 'glucose (user_id, date)',
         'habit_logs_user_date' => 'habit_logs (user_id, date)',
+        'med_doses_user_date' => 'med_doses (user_id, date)',
+        'reminder_log_date' => 'reminder_log (date)',
     ];
     foreach ($idx as $name => $on) {
         $sql[] = $driver === 'sqlite' ? "CREATE INDEX IF NOT EXISTS $name ON $on" : "CREATE INDEX $name ON $on";
@@ -377,7 +428,7 @@ function schema_sql(string $driver): array {
 }
 
 // Bump when the schema changes. Existing databases are brought up to date on the next request.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /** Columns added after the first release: [table, column, type]. */
 function added_columns(): array {
@@ -387,6 +438,12 @@ function added_columns(): array {
         ['whoop_workouts', 'altitude_gain_m', 'DOUBLE'],
         ['whoop_workouts', 'zones', 'TEXT'],
         ['whoop_workouts', 'percent_recorded', 'DOUBLE'],
+        // Version 3: medication schedules, and where a weigh-in came from.
+        ['health_items', 'frequency', "VARCHAR(16) NOT NULL DEFAULT 'daily'"],
+        ['health_items', 'schedule', 'TEXT'],
+        ['health_items', 'remind', 'INT NOT NULL DEFAULT 1'],
+        ['health_items', 'refill_remind', 'INT NOT NULL DEFAULT 1'],
+        ['weights', 'source', 'VARCHAR(16)'],
     ];
 }
 
@@ -409,8 +466,23 @@ function run_schema(PDO $pdo, string $driver): void {
     }
     $st = $pdo->prepare('SELECT v FROM meta WHERE k = ?');
     $st->execute(['schema_version']);
-    if ($st->fetchColumn() === false) $pdo->prepare('INSERT INTO meta (k, v) VALUES (?, ?)')->execute(['schema_version', (string) SCHEMA_VERSION]);
+    $had = $st->fetchColumn();
+    migrate_data($pdo, $had === false ? 1 : (int) $had);
+    if ($had === false) $pdo->prepare('INSERT INTO meta (k, v) VALUES (?, ?)')->execute(['schema_version', (string) SCHEMA_VERSION]);
     else $pdo->prepare('UPDATE meta SET v = ? WHERE k = ?')->execute([(string) SCHEMA_VERSION, 'schema_version']);
+}
+
+/** Moves data into new shapes. Runs once, after the tables and columns exist. */
+function migrate_data(PDO $pdo, int $from): void {
+    if ($from < 3) {
+        // Doses were one per item per day; now each scheduled dose has a slot. Old rows become slot 0.
+        $exists = $pdo->query("SELECT COUNT(*) FROM med_doses")->fetchColumn();
+        if ((int) $exists === 0) {
+            try {
+                $pdo->exec('INSERT INTO med_doses (user_id, item_id, date, slot, taken_at) SELECT user_id, item_id, date, 0, taken_at FROM health_doses');
+            } catch (PDOException $e) { /* no old doses table on a fresh install */ }
+        }
+    }
 }
 
 /** Brings an existing database up to SCHEMA_VERSION. Cheap when it's already current. */

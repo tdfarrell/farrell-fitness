@@ -4,6 +4,7 @@ import { state, loadSummary } from './store.js';
 import { openAddFood } from './views/food.js';
 import { openWeightSheet } from './views/weight.js';
 import { openMedsSheet, openGlucoseSheet } from './views/health.js';
+import { openMeasureSheet, openCamera } from './views/body.js';
 import { guessMeal } from './views/today.js';
 
 const changed = () => window.dispatchEvent(new Event('ff:changed'));
@@ -20,6 +21,8 @@ export function openQuickAddMenu() {
     ['Cardio', 'pulse', NAVY, () => go('#/train/cardio/new')],
     ['Meds', 'pill', GREEN, () => openMedsSheet({ onDone: changed })],
     ['Glucose', 'drop', RED, () => openGlucoseSheet({ onDone: changed })],
+    ['Measure', 'ruler', NAVY, () => openMeasureSheet({ onDone: changed })],
+    ['Photo', 'camera', NAVY, () => openCamera({ onDone: changed })],
     ['Journal', 'journal', GREEN, () => go('#/journal')],
   ];
   const s = openSheet({

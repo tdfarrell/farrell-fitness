@@ -45,8 +45,9 @@ export function fmtPace(activity, distM, durS) {
 const actIcon = (a) => icon(ICON[a] || 'pulse');
 
 export function trainSwitch(current) {
-  return h('nav', { class: 'segmented big', 'aria-label': 'Training sections' },
-    h('a', { href: '#/train', 'aria-current': current === 'strength' ? 'page' : null }, 'Strength'),
+  return h('nav', { class: 'segmented big four', 'aria-label': 'Training sections' },
+    h('a', { href: '#/train', 'aria-current': current === 'overview' ? 'page' : null }, 'Overview'),
+    h('a', { href: '#/train/strength', 'aria-current': current === 'strength' ? 'page' : null }, 'Strength'),
     h('a', { href: '#/train/cardio', 'aria-current': current === 'cardio' ? 'page' : null }, 'Cardio'),
     h('a', { href: '#/train/progress', 'aria-current': current === 'progress' ? 'page' : null }, 'Progress'));
 }

@@ -67,6 +67,15 @@ const ICONS = {
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   torch: '<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>',
   calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/>',
+  ruler: '<path d="M4 16L16 4l4 4L8 20z"/><path d="M8 12l2 2M11 9l2 2M14 6l2 2"/>',
+  bulb: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+  target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="0.8"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
+  report: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 15v-3M12 15V9M15 15v-5"/>',
+  drag: '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
 };
 export function icon(name, size) {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -105,6 +114,11 @@ export function relDay(iso) {
   const y = new Date(t + 'T12:00:00'); y.setDate(y.getDate() - 1);
   if (iso === y.toISOString().slice(0, 10)) return 'Yesterday';
   return shortDate(iso);
+}
+/** relDay for the middle of a sentence: "today", "yesterday", or a date as written. */
+export function relDayLc(iso) {
+  const r = relDay(iso);
+  return r === 'Today' || r === 'Yesterday' ? r.toLowerCase() : r;
 }
 export function timeAgo(unix) {
   if (!unix) return 'never';

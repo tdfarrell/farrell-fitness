@@ -48,18 +48,21 @@
   <tbody>
     <tr><td>Account details: username and a hashed password</td><td>You, when the account is created</td></tr>
     <tr><td>Food log, custom foods and recipes</td><td>You</td></tr>
-    <tr><td>Body weight and optional body-fat percentage</td><td>You</td></tr>
+    <tr><td>Body weight and optional body-fat percentage</td><td>You, or a smart scale through Apple Health if you set up the scale Shortcut</td></tr>
+    <tr><td>Body measurements: waist, hips, chest, neck, shoulders, arms, thighs and calves</td><td>You</td></tr>
+    <tr><td>Progress photos (front, side and back)</td><td>You</td></tr>
     <tr><td>Workouts, exercises, sets, reps and weights; cardio sessions with time, distance, heart rate and notes</td><td>You</td></tr>
     <tr><td>Meal plans</td><td>You</td></tr>
     <tr><td>Health records: medications and supplements you list and when you take them, lab test results, blood sugar readings, and measurements such as VO2 max and blood pressure</td><td>You</td></tr>
     <tr><td>Daily habits and whether you completed them</td><td>You, and automatically from your other logs and WHOOP data</td></tr>
     <tr><td>Journal entries: mood, energy and stress ratings, text and tags, with a snapshot of that day's recovery, sleep, steps, food and training</td><td>You</td></tr>
-    <tr><td>Settings such as goal, height, birth year, sex and activity level</td><td>You</td></tr>
+    <tr><td>Settings such as goal, height, birth year, sex, activity level and reminder times</td><td>You</td></tr>
+    <tr><td>For reminders: a notification address for each device you turn them on for, and which reminders were sent</td><td>Your browser or phone, when you turn reminders on</td></tr>
     <tr><td>Recovery score, heart rate variability, resting heart rate, blood oxygen, skin temperature, sleep stages and performance, respiratory rate, day strain, step count, calories burned, and workouts with heart rate zones, distance and elevation</td><td>WHOOP, only after you connect your WHOOP account</td></tr>
   </tbody>
 </table>
-<p>The app does not use analytics, advertising or tracking cookies, and does not collect your location or contacts. The camera is used only while you scan a barcode; images are read on your device and are never uploaded or stored.</p>
-<p>Health records and journal entries are sensitive. They are stored with the rest of your data, shown only to you, and included when you download your data.</p>
+<p>The app does not use analytics, advertising or tracking cookies, and does not collect your location or contacts. The camera is used only when you scan a barcode or take a progress photo. Barcode images are read on your device and never uploaded. Progress photos are resized on your device, which also removes location and camera details, before they are uploaded.</p>
+<p>Health records, journal entries and progress photos are sensitive. They are shown only to you after you sign in. Health records and journal entries are included when you download your data; progress photos are listed there, but the images themselves stay on the server; open a photo in the app to save it.</p>
 
 <h2>How WHOOP data is used</h2>
 <p>When you choose to connect WHOOP, you sign in on WHOOP's own website and approve read-only access. The app then reads your recovery, sleep, cycle (strain), workout, profile and body measurement data through the WHOOP Developer API. That data is used only to show you your own recovery, sleep, strain, steps and workouts inside the app, alongside your nutrition, training and health records, and to check off habits such as a daily step goal.</p>
@@ -71,7 +74,8 @@
 </ul>
 
 <h2>Where data is stored</h2>
-<p>All data is stored in a private MySQL database on the app's web host (Bluehost) in the United States. WHOOP access tokens are stored on the server and are never sent to your browser. Some data is also kept in your browser's storage so the app works offline; it stays on your device.</p>
+<p>All data is stored in a private MySQL database on the app's web host (Bluehost) in the United States. Progress photos are stored as files in a private folder on the same server that the web server will not serve directly; they are sent only to a signed-in account that owns them. WHOOP access tokens are stored on the server and are never sent to your browser. Some data is also kept in your browser's storage so the app works offline; it stays on your device. Progress photos are not kept in the app's offline storage.</p>
+<p>Every night the database is backed up to a private folder on the same server. Backups from the last 30 days are kept, plus one from each of the last 6 months. Backups do not include progress photos.</p>
 
 <h2>Who data is shared with</h2>
 <p>Your data is not shared with third parties. To provide its features, the app sends only the following:</p>
@@ -79,19 +83,23 @@
   <li><strong>USDA FoodData Central</strong> receives the food search terms you type, to return nutrition information.</li>
   <li><strong>Open Food Facts</strong> receives a product barcode when you scan or enter one.</li>
   <li><strong>WHOOP</strong> receives requests for your own data, signed with the access you granted.</li>
+  <li><strong>Your device's push service</strong> (Apple, Google or Mozilla, depending on your device and browser) delivers reminders. Each reminder is encrypted for your device before it leaves the server, so the push service cannot read it.</li>
 </ul>
-<p>None of these requests include your name, your logs, your health records or your WHOOP data.</p>
+<p>None of these requests include your name, your logs, your health records or your WHOOP data. Reminder text, such as the name of a medication that's due, is readable only on your device.</p>
+<p>If you set up the smart scale Shortcut, your iPhone reads your latest weight and body fat from Apple Health and sends them to the app with a private key. The app does not otherwise access Apple Health.</p>
 
 <h2>Security</h2>
 <ul>
   <li>All traffic uses HTTPS.</li>
   <li>Passwords are stored only as secure hashes. Sign-in attempts are rate-limited.</li>
   <li>Sign-in cookies are HTTP-only. The "stay signed in" token is stored hashed and replaced each time it is used.</li>
-  <li>The server configuration and database are not reachable from the web.</li>
+  <li>The server configuration, database, backups and photo files are not reachable from the web.</li>
+  <li>The smart scale key is stored only as a hash, can only add weigh-ins, and can be reset at any time.</li>
 </ul>
 
 <h2>Keeping and deleting data</h2>
-<p>Data is kept until you delete it. You can delete individual entries at any time in the app, including medications, lab results, blood sugar readings, habits and journal entries, and download everything you have stored from Settings.</p>
+<p>Data is kept until you delete it. You can delete individual entries at any time in the app, including medications, lab results, blood sugar readings, measurements, progress photos, habits and journal entries, and download everything you have stored from Settings. Deleting a progress photo removes the file from the server right away. Deleted entries can remain in nightly backups until those backups expire, at most 6 months later.</p>
+<p>To stop reminders on a device, turn them off in Settings › Reminders and sync, or block notifications for the app in your device settings.</p>
 <p>To stop WHOOP access, go to Settings and choose Disconnect WHOOP. This revokes the app's access with WHOOP and deletes the stored access tokens and all WHOOP data the app has synced. You can also remove the app's access from your WHOOP account settings at any time. To have your account and all of its data deleted, contact the owner below.</p>
 
 <h2>Children</h2>

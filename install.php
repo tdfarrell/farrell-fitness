@@ -108,9 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <h2>You're set up</h2>
     <p>Your account and database are ready.</p>
     <p><strong>Next, delete <code>install.php</code> from the server</strong> (it's locked now, but there's no reason to keep it).</p>
-    <h2 style="margin-top:20px">Hourly WHOOP sync</h2>
-    <p>In cPanel, open Cron Jobs, choose "Once per hour", and use this command:</p>
-    <p><code>curl -s "<?= h($done['base_url']) ?>/api/?r=cron/whoop&amp;key=<?= h($done['cron_secret']) ?>" &gt;/dev/null</code></p>
+    <h2 style="margin-top:20px">Scheduled task</h2>
+    <p>One cron job runs reminders, the hourly WHOOP sync and the nightly backup. In cPanel, open Cron Jobs, set it to run every 15 minutes (minute <code>*/15</code>, every hour, day, month and weekday), and use this command:</p>
+    <p><code>curl -s "<?= h($done['base_url']) ?>/api/?r=cron/tick&amp;key=<?= h($done['cron_secret']) ?>" &gt;/dev/null</code></p>
     <p class="hint">This key is also saved in api/config.php as cron_secret.</p>
     <p style="margin-top:20px"><a href="./">Open the app and sign in</a></p>
   </section>

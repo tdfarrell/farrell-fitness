@@ -46,18 +46,16 @@ function habit_status(int $uid, array $habits, string $from, string $to): array 
     $weighed = array_flip(array_column(q_all('SELECT date FROM weights WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]), 'date'));
     $food = array_flip(array_column(q_all('SELECT DISTINCT date FROM diary_entries WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]), 'date'));
     $journal = array_flip(array_column(q_all('SELECT date FROM journal WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]), 'date'));
-    $activeMeds = (int) q_val('SELECT COUNT(*) FROM health_items WHERE user_id = ? AND active = 1', [$uid]);
-    $doses = [];
-    foreach (q_all('SELECT d.date, COUNT(*) n FROM health_doses d JOIN health_items i ON i.id = d.item_id WHERE d.user_id = ? AND i.active = 1 AND d.date BETWEEN ? AND ? GROUP BY d.date', [$uid, $from, $to]) as $r) $doses[$r['date']] = (int) $r['n'];
+    $meds = array_filter($habits, fn($h) => $h['kind'] === 'meds') ? med_progress($uid, $from, $to) : [];
 
     $out = [];
-    for ($t = strtotime($from); $t <= strtotime($to); $t += 86400) {
-        $d = date('Y-m-d', $t);
+    // Step by calendar day from noon, so clock changes can't skip or repeat a date.
+    for ($d = $from; $d <= $to; $d = date('Y-m-d', strtotime("$d 12:00 +1 day"))) {
         foreach ($habits as $h) {
             $id = $h['id'];
             $log = $logs[$d][$id] ?? null;
             $value = $log['value'] ?? null;
-            $auto = null; $source = null;
+            $auto = null; $source = null; $due = null;
             switch ($h['kind']) {
                 case 'steps':
                     $steps = isset($whoop[$d]['step_count']) && $whoop[$d]['step_count'] !== null ? (float) $whoop[$d]['step_count'] : null;
@@ -71,14 +69,15 @@ function habit_status(int $uid, array $habits, string $from, string $to): array 
                 case 'log_food': $auto = isset($food[$d]); $source = 'food'; break;
                 case 'journal': $auto = isset($journal[$d]); $source = 'journal'; break;
                 case 'meds':
-                    if ($activeMeds > 0) { $value = $doses[$d] ?? 0; $auto = ($doses[$d] ?? 0) >= $activeMeds; $source = 'meds'; }
+                    // Done when every scheduled dose due that day is taken. Days with nothing due count as done.
+                    if (($meds[$d]['items'] ?? 0) > 0) { $value = $meds[$d]['taken']; $due = $meds[$d]['due']; $auto = $meds[$d]['taken'] >= $meds[$d]['due']; $source = 'meds'; }
                     break;
                 case 'minutes': case 'count':
                     if ($value !== null && $h['target']) $auto = $value >= $h['target'];
                     break;
             }
             $done = ($auto === true) || ($log['done'] ?? false);
-            $out[$d][$id] = ['done' => $done, 'value' => $value, 'auto' => $auto !== null, 'source' => $source];
+            $out[$d][$id] = ['done' => $done, 'value' => $value, 'auto' => $auto !== null, 'source' => $source] + ($due !== null ? ['due' => $due] : []);
         }
     }
     return $out;
@@ -99,10 +98,10 @@ function route_habits(int $uid, string $m) {
     foreach ($active as $h) {
         // Streak: consecutive done days ending today, or ending yesterday if today isn't done yet.
         $streak = 0;
-        $t = strtotime($date);
-        if (empty($status[$date][$h['id']]['done'])) $t -= 86400;
-        for (; $t >= strtotime($from); $t -= 86400) {
-            if (!empty($status[date('Y-m-d', $t)][$h['id']]['done'])) $streak++; else break;
+        $d = $date;
+        if (empty($status[$date][$h['id']]['done'])) $d = date('Y-m-d', strtotime("$d 12:00 -1 day"));
+        for (; $d >= $from; $d = date('Y-m-d', strtotime("$d 12:00 -1 day"))) {
+            if (!empty($status[$d][$h['id']]['done'])) $streak++; else break;
         }
         $out[] = $h + $status[$date][$h['id']] + ['streak' => $streak];
     }

@@ -12,6 +12,12 @@ require __DIR__ . '/lib/plans.php';
 require __DIR__ . '/lib/cardio.php';
 require __DIR__ . '/lib/health.php';
 require __DIR__ . '/lib/habits.php';
+require __DIR__ . '/lib/photos.php';
+require __DIR__ . '/lib/backup.php';
+require __DIR__ . '/lib/push.php';
+require __DIR__ . '/lib/reminders.php';
+require __DIR__ . '/lib/sync.php';
+require __DIR__ . '/lib/report.php';
 
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
@@ -26,6 +32,9 @@ try {
     if ($route === 'whoop/connect') { route_whoop_connect(); exit; }
     if ($route === 'whoop/callback') { route_whoop_callback(); exit; }
     if ($route === 'cron/whoop') { json_out(route_cron_whoop()); exit; }
+    if ($route === 'cron/tick') { cron_key_check(); json_out(run_tick()); exit; }
+    // The scale Shortcut signs in with its own key instead of a session.
+    if ($route === 'sync/scale') { json_out(route_sync_scale()); exit; }
 
     require_csrf_header();
 
@@ -233,15 +242,15 @@ function route_foods_delete(int $uid, string $m) {
 function route_weights(int $uid, string $m) {
     $from = valid_date((string) param('from', date('Y-m-d', strtotime('-365 days'))));
     $to = valid_date((string) param('to', today()));
-    $rows = q_all('SELECT date, weight_kg, body_fat FROM weights WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date', [$uid, $from, $to]);
-    return ['weights' => array_map(fn($r) => ['date' => $r['date'], 'weight_kg' => (float) $r['weight_kg'], 'body_fat' => $r['body_fat'] === null ? null : (float) $r['body_fat']], $rows)];
+    $rows = q_all('SELECT date, weight_kg, body_fat, source FROM weights WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date', [$uid, $from, $to]);
+    return ['weights' => array_map(fn($r) => ['date' => $r['date'], 'weight_kg' => (float) $r['weight_kg'], 'body_fat' => $r['body_fat'] === null ? null : (float) $r['body_fat'], 'source' => $r['source'] ?: 'manual'], $rows)];
 }
 
 function route_weights_save(int $uid, string $m) {
     $kg = req_num('weight_kg');
     if ($kg < 25 || $kg > 350) fail(400, 'That weight looks out of range');
     $bf = opt_num('body_fat');
-    db_upsert('weights', ['user_id' => $uid, 'date' => req_date()], ['weight_kg' => round($kg, 3), 'body_fat' => $bf]);
+    db_upsert('weights', ['user_id' => $uid, 'date' => req_date()], ['weight_kg' => round($kg, 3), 'body_fat' => $bf, 'source' => 'manual']);
     return ['ok' => true];
 }
 
@@ -399,11 +408,11 @@ function route_summary(int $uid, string $m) {
     $days = [];
     $cur = new DateTime($from);
     $end = new DateTime($to);
-    while ($cur <= $end) { $days[$cur->format('Y-m-d')] = ['date' => $cur->format('Y-m-d'), 'entries' => 0, 'kcal' => 0, 'protein' => 0, 'carbs' => 0, 'fat' => 0, 'status' => 'auto', 'weight_kg' => null, 'whoop' => null]; $cur->modify('+1 day'); }
+    while ($cur <= $end) { $days[$cur->format('Y-m-d')] = ['date' => $cur->format('Y-m-d'), 'entries' => 0, 'kcal' => 0, 'protein' => 0, 'carbs' => 0, 'fat' => 0, 'fiber' => 0, 'status' => 'auto', 'weight_kg' => null, 'whoop' => null]; $cur->modify('+1 day'); }
 
-    foreach (q_all('SELECT date, COUNT(*) n, SUM(kcal) kcal, SUM(protein) p, SUM(carbs) c, SUM(fat) f FROM diary_entries WHERE user_id = ? AND date BETWEEN ? AND ? GROUP BY date', [$uid, $from, $to]) as $r) {
+    foreach (q_all('SELECT date, COUNT(*) n, SUM(kcal) kcal, SUM(protein) p, SUM(carbs) c, SUM(fat) f, SUM(fiber) fi FROM diary_entries WHERE user_id = ? AND date BETWEEN ? AND ? GROUP BY date', [$uid, $from, $to]) as $r) {
         if (!isset($days[$r['date']])) continue;
-        $days[$r['date']] = array_merge($days[$r['date']], ['entries' => (int) $r['n'], 'kcal' => round((float) $r['kcal']), 'protein' => round((float) $r['p']), 'carbs' => round((float) $r['c']), 'fat' => round((float) $r['f'])]);
+        $days[$r['date']] = array_merge($days[$r['date']], ['entries' => (int) $r['n'], 'kcal' => round((float) $r['kcal']), 'protein' => round((float) $r['p']), 'carbs' => round((float) $r['c']), 'fat' => round((float) $r['f']), 'fiber' => round((float) $r['fi'])]);
     }
     foreach (q_all('SELECT date, status FROM days WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]) as $r) {
         if (isset($days[$r['date']])) $days[$r['date']]['status'] = $r['status'];
@@ -501,19 +510,14 @@ function route_whoop_callback(): void {
     }
 }
 
-function route_cron_whoop(): array {
+function cron_key_check(): void {
     $secret = (string) (config()['cron_secret'] ?? '');
     if (strlen($secret) < 16 || str_starts_with($secret, 'CHANGE_ME') || !hash_equals($secret, (string) ($_GET['key'] ?? ''))) fail(403, 'Bad cron key');
-    return run_whoop_cron();
 }
 
-function run_whoop_cron(): array {
-    $out = [];
-    foreach (q_all('SELECT user_id FROM whoop_tokens') as $r) {
-        try { $out[$r['user_id']] = whoop_sync((int) $r['user_id']); }
-        catch (Throwable $e) { $out[$r['user_id']] = ['error' => $e->getMessage()]; }
-    }
-    return ['synced' => $out];
+function route_cron_whoop(): array {
+    cron_key_check();
+    return run_whoop_cron();
 }
 
 /* ---------- export ---------- */
@@ -525,7 +529,7 @@ function route_export(int $uid, string $m) {
         'settings' => get_settings($uid),
         'diary' => $t('SELECT date, meal, name, brand, grams, quantity, portion_label, kcal, protein, carbs, fat, fiber FROM diary_entries WHERE user_id = ? ORDER BY date, id'),
         'days' => $t('SELECT date, status, note FROM days WHERE user_id = ? ORDER BY date'),
-        'weights' => $t('SELECT date, weight_kg, body_fat FROM weights WHERE user_id = ? ORDER BY date'),
+        'weights' => $t('SELECT date, weight_kg, body_fat, source FROM weights WHERE user_id = ? ORDER BY date'),
         'foods' => $t('SELECT source, source_id, name, brand, barcode, kcal, protein, carbs, fat, fiber, sugar, sodium, portions, recipe FROM foods WHERE user_id = ? AND archived = 0'),
         'exercises' => $t('SELECT id, name, muscle, equipment FROM exercises WHERE user_id = ?'),
         'workouts' => array_map(fn($w) => workout_out($w), $t('SELECT * FROM workouts WHERE user_id = ? ORDER BY date')),
@@ -534,8 +538,10 @@ function route_export(int $uid, string $m) {
         'whoop_workouts' => $t('SELECT * FROM whoop_workouts WHERE user_id = ? ORDER BY date'),
         'meal_plans' => array_map('plan_out', $t('SELECT * FROM meal_plans WHERE user_id = ? ORDER BY position, id')),
         'cardio' => $t('SELECT date, start_time, activity, duration_s, distance_m, avg_hr, max_hr, elevation_m, effort, kcal, reps, notes, whoop_id FROM cardio WHERE user_id = ? ORDER BY date'),
-        'medications_and_supplements' => $t('SELECT id, name, dose, kind, time_of_day, supply, active FROM health_items WHERE user_id = ? ORDER BY position, id'),
-        'doses_taken' => $t('SELECT item_id, date, taken_at FROM health_doses WHERE user_id = ? ORDER BY date'),
+        'medications_and_supplements' => array_map(fn($r) => array_intersect_key(health_item_out($r), array_flip(['id', 'name', 'dose', 'kind', 'frequency', 'schedule', 'supply', 'active', 'remind', 'refill_remind'])),
+            $t('SELECT * FROM health_items WHERE user_id = ? ORDER BY position, id')),
+        'doses_taken' => $t('SELECT item_id, date, slot, taken_at FROM med_doses WHERE user_id = ? ORDER BY date, item_id, slot'),
+        'progress_photos' => array_map('photo_out', $t('SELECT * FROM progress_photos WHERE user_id = ? ORDER BY date, pose')),
         'lab_results' => $t('SELECT date, marker, value, unit, ref_low, ref_high, note FROM labs WHERE user_id = ? ORDER BY date, marker'),
         'blood_sugar' => $t('SELECT date, time, mg_dl, context, note FROM glucose WHERE user_id = ? ORDER BY date, time'),
         'measurements' => $t('SELECT date, kind, value, value2, note FROM measurements WHERE user_id = ? ORDER BY date'),

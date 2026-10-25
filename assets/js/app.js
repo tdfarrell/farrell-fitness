@@ -16,11 +16,15 @@ import * as health from './views/health.js';
 import * as habits from './views/habits.js';
 import * as journal from './views/journal.js';
 import * as more from './views/more.js';
+import * as body from './views/body.js';
+import * as insights from './views/insights.js';
+import * as report from './views/report.js';
+import * as projection from './views/projection.js';
 import { openQuickAddMenu } from './quickadd.js';
 
-const VIEWS = { today, food, plans, weight, train, progress, whoop, settings, health, habits, journal, more };
-const TITLES = { today: 'Today', food: 'Food log', plans: 'Meal plans', weight: 'Weight', train: 'Training', progress: 'Progress', whoop: 'WHOOP',
-  settings: 'Settings', health: 'Health', habits: 'Habits', journal: 'Journal', more: 'More' };
+const VIEWS = { today, food, plans, weight, train, progress, whoop, settings, health, habits, journal, more, body, insights, report, projection };
+const TITLES = { today: 'Today', food: 'Food', plans: 'Meal plans', weight: 'Weight', train: 'Training', progress: 'Progress', whoop: 'WHOOP',
+  settings: 'Settings', health: 'Health', habits: 'Habits', journal: 'Journal', more: 'More', body: 'Body', insights: 'Insights', report: 'Weekly report', projection: 'Goal projection' };
 // Which bottom tab lights up for each screen.
 const TAB = { today: 'today', food: 'food', plans: 'food', train: 'train' };
 const root = document.getElementById('view');
@@ -138,6 +142,10 @@ document.addEventListener('click', (e) => {
 });
 // Anything that changes data from outside the current screen (quick add) asks for a re-render.
 window.addEventListener('ff:changed', () => { markStale(); route(); });
+// A tapped reminder can ask an open window to go to a screen.
+navigator.serviceWorker?.addEventListener('message', (e) => {
+  if (e.data?.type === 'open' && typeof e.data.url === 'string') { const i = e.data.url.indexOf('#'); if (i >= 0) location.hash = e.data.url.slice(i); }
+});
 registerServiceWorker((activate) => {
   const t = h('div', { class: 'toast', role: 'status' }, 'A new version is ready. ',
     h('button', { class: 'btn sm', style: { marginLeft: '8px', height: '32px' }, onclick: () => { activate(); t.remove(); } }, 'Update'));

@@ -3,20 +3,138 @@
 // blood sugar readings, and occasional measurements such as VO2 max and blood pressure.
 
 const HEALTH_TIMES = ['morning', 'midday', 'evening', 'bedtime', 'any'];
-const MEASUREMENT_KINDS = ['vo2max', 'bp', 'body_fat', 'waist'];
+const HEALTH_FREQS = ['daily', 'twice', 'thrice', 'weekly', 'interval', 'prn'];
+const DEFAULT_DOSE_TIME = ['morning' => '08:00', 'midday' => '12:30', 'evening' => '19:00', 'bedtime' => '22:00', 'any' => '09:00'];
+// Body circumferences are stored in cm. body_fat in %, vo2max in ml/kg/min, bp as systolic/diastolic.
+const BODY_KINDS = ['waist', 'hips', 'chest', 'neck', 'shoulders', 'arm_l', 'arm_r', 'thigh_l', 'thigh_r', 'calf_l', 'calf_r'];
+const MEASUREMENT_KINDS = ['vo2max', 'bp', 'body_fat', 'waist', 'hips', 'chest', 'neck', 'shoulders', 'arm_l', 'arm_r', 'thigh_l', 'thigh_r', 'calf_l', 'calf_r'];
 const GLUCOSE_CONTEXTS = ['fasting', 'before_meal', 'after_meal_1h', 'after_meal_2h', 'bedtime', 'other'];
 
-function health_item_out(array $r): array {
-    return ['id' => (int) $r['id'], 'name' => $r['name'], 'dose' => $r['dose'], 'kind' => $r['kind'], 'time_of_day' => $r['time_of_day'],
-        'supply' => $r['supply'] === null ? null : (int) $r['supply'], 'active' => (bool) $r['active'], 'position' => (int) $r['position']];
+/* ---------- medication schedules ----------
+ * frequency: daily | twice | thrice | weekly | interval (every N days) | prn (as needed)
+ * schedule:  {times: [{slot, time}], weekdays: [0-6], every: N, start: date, max: per-day limit}
+ * Each entry in times is one dose on a day it's due. Doses are stored in med_doses by slot index.
+ */
+
+function normalize_schedule(string $freq, $raw, string $fallbackSlot = 'morning'): array {
+    $raw = is_array($raw) ? $raw : (json_decode((string) $raw, true) ?: []);
+    $times = [];
+    foreach (array_slice((array) ($raw['times'] ?? []), 0, 6) as $t) {
+        $slot = in_array($t['slot'] ?? '', HEALTH_TIMES, true) ? $t['slot'] : 'any';
+        $time = preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', (string) ($t['time'] ?? '')) ? $t['time'] : DEFAULT_DOSE_TIME[$slot];
+        $times[] = ['slot' => $slot, 'time' => $time];
+    }
+    $need = ['twice' => 2, 'thrice' => 3][$freq] ?? null;
+    $fill = [['morning'], ['morning', 'evening'], ['morning', 'midday', 'evening']];
+    if ($freq === 'prn') $times = [];
+    elseif ($need !== null) {
+        $defaults = $fill[$need - 1];
+        while (count($times) < $need) { $sl = $defaults[count($times)]; $times[] = ['slot' => $sl, 'time' => DEFAULT_DOSE_TIME[$sl]]; }
+        $times = array_slice($times, 0, $need);
+    } elseif (!$times) {
+        $times = [['slot' => $fallbackSlot, 'time' => DEFAULT_DOSE_TIME[$fallbackSlot] ?? '08:00']];
+    } else {
+        $times = array_slice($times, 0, 1);
+    }
+    $out = ['times' => $times];
+    if ($freq === 'weekly') {
+        $days = array_values(array_unique(array_filter(array_map('intval', (array) ($raw['weekdays'] ?? [])), fn($d) => $d >= 0 && $d <= 6)));
+        sort($days);
+        $out['weekdays'] = $days ?: [(int) date('w')];
+    }
+    if ($freq === 'interval') {
+        $out['every'] = max(2, min(60, (int) ($raw['every'] ?? 2)));
+        $start = (string) ($raw['start'] ?? '');
+        $out['start'] = preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) ? $start : today();
+    }
+    if ($freq === 'prn') $out['max'] = isset($raw['max']) && $raw['max'] !== '' && $raw['max'] !== null ? max(1, min(24, (int) $raw['max'])) : null;
+    return $out;
 }
 
-/** Active items with whether each was taken on $date. */
+function item_due_on(array $item, string $date): bool {
+    $f = $item['frequency']; $s = $item['schedule'];
+    if ($f === 'prn') return false;
+    if ($f === 'weekly') return in_array((int) date('w', strtotime($date)), $s['weekdays'], true);
+    if ($f === 'interval') {
+        $d = (int) round((strtotime("$date 12:00") - strtotime($s['start'] . ' 12:00')) / 86400);
+        return $d >= 0 && $d % $s['every'] === 0;
+    }
+    return true;
+}
+
+/** Average doses per day, for how long a supply lasts. Null for as-needed. */
+function doses_per_day(array $item): ?float {
+    $n = count($item['schedule']['times']);
+    return match ($item['frequency']) {
+        'prn' => null,
+        'weekly' => $n * count($item['schedule']['weekdays']) / 7,
+        'interval' => $n / $item['schedule']['every'],
+        default => (float) $n,
+    };
+}
+
+function next_due(array $item, string $after): ?string {
+    if ($item['frequency'] === 'prn') return null;
+    for ($i = 1; $i <= 62; $i++) { $d = date('Y-m-d', strtotime("$after +$i days")); if (item_due_on($item, $d)) return $d; }
+    return null;
+}
+
+function health_item_out(array $r): array {
+    $freq = in_array($r['frequency'] ?? 'daily', HEALTH_FREQS, true) ? $r['frequency'] : 'daily';
+    $item = ['id' => (int) $r['id'], 'name' => $r['name'], 'dose' => $r['dose'], 'kind' => $r['kind'], 'time_of_day' => $r['time_of_day'],
+        'frequency' => $freq, 'schedule' => normalize_schedule($freq, $r['schedule'] ?? null, $r['time_of_day'] ?: 'morning'),
+        'remind' => (bool) ($r['remind'] ?? 1), 'refill_remind' => (bool) ($r['refill_remind'] ?? 1),
+        'supply' => $r['supply'] === null ? null : (int) $r['supply'], 'active' => (bool) $r['active'], 'position' => (int) $r['position']];
+    $per = doses_per_day($item);
+    $item['per_day'] = $per === null ? null : round($per, 3);
+    $item['supply_days'] = $item['supply'] !== null && $per ? (int) floor($item['supply'] / $per) : null;
+    return $item;
+}
+
+/** Items with each dose due on $date and whether it was taken. */
 function health_items_for(int $uid, string $date, bool $includeInactive = false): array {
     $rows = q_all('SELECT * FROM health_items WHERE user_id = ?' . ($includeInactive ? '' : ' AND active = 1') . ' ORDER BY position, id', [$uid]);
     $taken = [];
-    foreach (q_all('SELECT item_id, taken_at FROM health_doses WHERE user_id = ? AND date = ?', [$uid, $date]) as $d) $taken[(int) $d['item_id']] = (int) $d['taken_at'];
-    return array_map(fn($r) => health_item_out($r) + ['taken_at' => $taken[(int) $r['id']] ?? null], $rows);
+    foreach (q_all('SELECT item_id, slot, taken_at FROM med_doses WHERE user_id = ? AND date = ? ORDER BY slot', [$uid, $date]) as $d) $taken[(int) $d['item_id']][(int) $d['slot']] = (int) $d['taken_at'];
+    $last = [];
+    foreach (q_all('SELECT item_id, MAX(taken_at) t FROM med_doses WHERE user_id = ? GROUP BY item_id', [$uid]) as $d) $last[(int) $d['item_id']] = (int) $d['t'];
+    return array_map(function ($r) use ($taken, $last, $date) {
+        $i = health_item_out($r);
+        $mine = $taken[$i['id']] ?? [];
+        $i['due'] = item_due_on($i, $date);
+        $i['doses'] = [];
+        if ($i['frequency'] === 'prn') {
+            $i['taken_today'] = array_map(fn($slot, $t) => ['slot' => $slot, 'taken_at' => $t], array_keys($mine), array_values($mine));
+        } elseif ($i['due']) {
+            foreach ($i['schedule']['times'] as $k => $t) $i['doses'][] = ['slot' => $k, 'part' => $t['slot'], 'time' => $t['time'], 'taken_at' => $mine[$k] ?? null];
+        }
+        $i['last_taken_at'] = $last[$i['id']] ?? null;
+        $i['next_due'] = $i['due'] ? $date : next_due($i, $date);
+        // Kept for older screens: set once every dose due today is taken.
+        $done = $i['doses'] && !array_filter($i['doses'], fn($d) => !$d['taken_at']);
+        $i['taken_at'] = $done ? max(array_column($i['doses'], 'taken_at')) : null;
+        return $i;
+    }, $rows);
+}
+
+/** Scheduled doses due and taken per day: [date => ['due' => n, 'taken' => n]]. As-needed items don't count. */
+function med_progress(int $uid, string $from, string $to): array {
+    $items = array_map('health_item_out', q_all('SELECT * FROM health_items WHERE user_id = ? AND active = 1', [$uid]));
+    $items = array_values(array_filter($items, fn($i) => $i['frequency'] !== 'prn'));
+    $taken = [];
+    foreach (q_all('SELECT item_id, date, slot FROM med_doses WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]) as $d) $taken[$d['date']][(int) $d['item_id']][(int) $d['slot']] = true;
+    $out = [];
+    for ($d = $from; $d <= $to; $d = date('Y-m-d', strtotime("$d 12:00 +1 day"))) {
+        $due = 0; $got = 0;
+        foreach ($items as $i) {
+            if (!item_due_on($i, $d)) continue;
+            $n = count($i['schedule']['times']);
+            $due += $n;
+            for ($k = 0; $k < $n; $k++) if (!empty($taken[$d][$i['id']][$k])) $got++;
+        }
+        $out[$d] = ['due' => $due, 'taken' => $got, 'items' => count($items)];
+    }
+    return $out;
 }
 
 function route_health_items(int $uid, string $m) {
@@ -26,12 +144,22 @@ function route_health_items(int $uid, string $m) {
 
 function route_health_items_save(int $uid, string $m) {
     $kind = (string) param('kind', 'supplement');
-    $time = (string) param('time_of_day', 'morning');
+    $freq = (string) param('frequency', 'daily');
+    $freq = in_array($freq, HEALTH_FREQS, true) ? $freq : 'daily';
+    $legacy = (string) param('time_of_day', 'morning');
+    $legacy = in_array($legacy, HEALTH_TIMES, true) ? $legacy : 'morning';
+    $raw = (array) param('schedule', []);
+    if (!isset($raw['times']) && param('time_of_day')) $raw['times'] = [['slot' => $legacy]];
+    $schedule = normalize_schedule($freq, $raw, $legacy);
     $data = [
         'name' => req_str('name', 120),
         'dose' => param('dose') ? mb_substr(trim((string) param('dose')), 0, 80) : null,
         'kind' => in_array($kind, ['medication', 'supplement'], true) ? $kind : 'supplement',
-        'time_of_day' => in_array($time, HEALTH_TIMES, true) ? $time : 'morning',
+        'frequency' => $freq,
+        'schedule' => json_encode($schedule),
+        'time_of_day' => $schedule['times'][0]['slot'] ?? 'any',
+        'remind' => param('remind', true) ? 1 : 0,
+        'refill_remind' => param('refill_remind', true) ? 1 : 0,
         'supply' => ($s = opt_num('supply')) === null ? null : max(0, (int) $s),
         'active' => param('active', true) ? 1 : 0,
     ];
@@ -45,29 +173,48 @@ function route_health_items_save(int $uid, string $m) {
     return ['item' => health_item_out(q_one('SELECT * FROM health_items WHERE id = ?', [$id]))];
 }
 
+function route_health_items_order(int $uid, string $m) {
+    foreach (array_values((array) param('ids', [])) as $i => $id) db_update('health_items', ['position' => $i], ['id' => (int) $id, 'user_id' => $uid]);
+    return ['ok' => true];
+}
+
 function route_health_items_delete(int $uid, string $m) {
     $id = (int) req_num('id');
     if (q_one('SELECT id FROM health_items WHERE id = ? AND user_id = ?', [$id, $uid])) {
+        q('DELETE FROM med_doses WHERE item_id = ?', [$id]);
         q('DELETE FROM health_doses WHERE item_id = ?', [$id]);
         q('DELETE FROM health_items WHERE id = ?', [$id]);
     }
     return ['ok' => true];
 }
 
-/** Mark an item taken (or not) on a day. Counts the supply down or back up. */
+/**
+ * Mark one dose taken (or not). Scheduled items pass the dose's slot; as-needed items add a new
+ * dose each time and remove one by slot. Supply counts down and back up.
+ */
 function route_health_dose(int $uid, string $m) {
     $id = (int) req_num('item_id');
-    $item = q_one('SELECT * FROM health_items WHERE id = ? AND user_id = ?', [$id, $uid]);
-    if (!$item) fail(404, 'Item not found');
+    $row = q_one('SELECT * FROM health_items WHERE id = ? AND user_id = ?', [$id, $uid]);
+    if (!$row) fail(404, 'Item not found');
+    $item = health_item_out($row);
     $date = req_date();
     $taken = (bool) param('taken', true);
-    $had = q_one('SELECT id FROM health_doses WHERE item_id = ? AND date = ?', [$id, $date]);
+    $slot = param('slot');
+    if ($item['frequency'] === 'prn') {
+        if ($taken) $slot = (int) q_val('SELECT COALESCE(MAX(slot), -1) + 1 FROM med_doses WHERE item_id = ? AND date = ?', [$id, $date]);
+        elseif ($slot === null) $slot = (int) q_val('SELECT COALESCE(MAX(slot), 0) FROM med_doses WHERE item_id = ? AND date = ?', [$id, $date]);
+    } else {
+        $slot = (int) ($slot ?? 0);
+        if ($slot < 0 || $slot >= max(1, count($item['schedule']['times']))) fail(400, 'Unknown dose');
+    }
+    $slot = (int) $slot;
+    $had = q_one('SELECT id FROM med_doses WHERE item_id = ? AND date = ? AND slot = ?', [$id, $date, $slot]);
     if ($taken && !$had) {
-        db_insert('health_doses', ['user_id' => $uid, 'item_id' => $id, 'date' => $date, 'taken_at' => time()]);
-        if ($item['supply'] !== null && $item['supply'] > 0) q('UPDATE health_items SET supply = supply - 1 WHERE id = ?', [$id]);
+        db_insert('med_doses', ['user_id' => $uid, 'item_id' => $id, 'date' => $date, 'slot' => $slot, 'taken_at' => time()]);
+        if ($row['supply'] !== null && $row['supply'] > 0) q('UPDATE health_items SET supply = supply - 1 WHERE id = ?', [$id]);
     } elseif (!$taken && $had) {
-        q('DELETE FROM health_doses WHERE id = ?', [$had['id']]);
-        if ($item['supply'] !== null) q('UPDATE health_items SET supply = supply + 1 WHERE id = ?', [$id]);
+        q('DELETE FROM med_doses WHERE id = ?', [$had['id']]);
+        if ($row['supply'] !== null) q('UPDATE health_items SET supply = supply + 1 WHERE id = ?', [$id]);
     }
     return ['items' => health_items_for($uid, $date)];
 }
@@ -87,12 +234,37 @@ function route_measurements_save(int $uid, string $m) {
     $kind = (string) param('kind');
     if (!in_array($kind, MEASUREMENT_KINDS, true)) fail(400, 'Unknown measurement');
     $v = req_num('value');
-    $ranges = ['vo2max' => [10, 95], 'bp' => [60, 260], 'body_fat' => [2, 70], 'waist' => [40, 250]];
-    if ($v < $ranges[$kind][0] || $v > $ranges[$kind][1]) fail(400, 'That value looks out of range');
+    [$lo, $hi] = measurement_range($kind);
+    if ($v < $lo || $v > $hi) fail(400, 'That value looks out of range');
     $v2 = opt_num('value2');
     if ($kind === 'bp' && ($v2 === null || $v2 < 30 || $v2 > 160)) fail(400, 'Enter both blood pressure numbers');
     db_upsert('measurements', ['user_id' => $uid, 'date' => req_date(), 'kind' => $kind],
         ['value' => $v, 'value2' => $kind === 'bp' ? $v2 : null, 'note' => param('note') ? mb_substr((string) param('note'), 0, 255) : null]);
+    return route_measurements($uid, 'GET');
+}
+
+function measurement_range(string $kind): array {
+    return ['vo2max' => [10, 95], 'bp' => [60, 260], 'body_fat' => [2, 70], 'neck' => [20, 70], 'arm_l' => [15, 80], 'arm_r' => [15, 80],
+        'calf_l' => [15, 80], 'calf_r' => [15, 80], 'thigh_l' => [25, 120], 'thigh_r' => [25, 120]][$kind] ?? (in_array($kind, BODY_KINDS, true) ? [30, 250] : [0, 1000]);
+}
+
+/** Save a set of body measurements for one day: values = {kind: number or null}. Null clears that kind. */
+function route_measurements_save_many(int $uid, string $m) {
+    $date = req_date();
+    $values = (array) param('values', []);
+    $bad = []; $ops = [];
+    foreach ($values as $kind => $v) {
+        if (!in_array($kind, MEASUREMENT_KINDS, true) || $kind === 'bp' || $kind === 'vo2max') continue;
+        if ($v === null || $v === '') { $ops[$kind] = null; continue; }
+        [$lo, $hi] = measurement_range($kind);
+        if (!is_numeric($v) || $v < $lo || $v > $hi) { $bad[] = $kind; continue; }
+        $ops[$kind] = round((float) $v, 2);
+    }
+    if ($bad) fail(400, 'These look out of range: ' . implode(', ', $bad));
+    foreach ($ops as $kind => $v) {
+        if ($v === null) q('DELETE FROM measurements WHERE user_id = ? AND date = ? AND kind = ?', [$uid, $date, $kind]);
+        else db_upsert('measurements', ['user_id' => $uid, 'date' => $date, 'kind' => $kind], ['value' => $v, 'value2' => null, 'note' => null]);
+    }
     return route_measurements($uid, 'GET');
 }
 

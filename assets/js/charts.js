@@ -89,3 +89,30 @@ export function dateTicks(dates, count = 4) {
   }
   return out;
 }
+
+/** Scatter plot of [x, y] points with an optional straight-line fit. */
+export function scatter({ points, w: wIn = 560, h: hIn = 200, xFormat = String, yFormat = String, fit, label, color = 'var(--soft-primary)', fitColor = 'var(--kcal)', xTicks = 4 }) {
+  const pts = points.filter(([x, y]) => x != null && y != null);
+  if (pts.length < 3) return h('p', { class: 'empty small' }, 'Not enough data yet.');
+  const screenW = (typeof window !== 'undefined' && window.innerWidth) || wIn;
+  const w = Math.round(Math.min(wIn, Math.max(280, screenW - 64)));
+  const H = hIn;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const nx = niceTicks(Math.min(...xs), Math.max(...xs), xTicks);
+  const ny = niceTicks(Math.min(...ys), Math.max(...ys), 3);
+  const left = 44, right = 8, top = 8, bottom = 22;
+  const X = (v) => left + ((v - nx.lo) / (nx.hi - nx.lo || 1)) * (w - left - right);
+  const Y = (v) => top + ((ny.hi - v) / (ny.hi - ny.lo || 1)) * (H - top - bottom);
+  const svg = h('svg', { class: 'chart', viewBox: `0 0 ${w} ${H}`, role: 'img', 'aria-label': label, preserveAspectRatio: 'xMidYMid meet' });
+  for (const t of ny.ticks) {
+    svg.append(h('line', { x1: left, x2: w - right, y1: Y(t), y2: Y(t), stroke: 'var(--rule)', 'stroke-width': 1 }));
+    svg.append(h('text', { x: 0, y: Y(t) + 4 }, yFormat(t)));
+  }
+  nx.ticks.forEach((t, i) => svg.append(h('text', { x: X(t), y: H - 4, 'text-anchor': i === 0 ? 'start' : i === nx.ticks.length - 1 ? 'end' : 'middle' }, xFormat(t))));
+  for (const [x, y] of pts) svg.append(h('circle', { cx: X(x), cy: Y(y), r: 3.5, fill: color, 'fill-opacity': 0.85 }));
+  if (fit && fit.slope != null) {
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    svg.append(h('line', { x1: X(x0), y1: Y(fit.intercept + fit.slope * x0), x2: X(x1), y2: Y(fit.intercept + fit.slope * x1), stroke: fitColor, 'stroke-width': 3, 'stroke-linecap': 'round' }));
+  }
+  return svg;
+}
