@@ -86,6 +86,7 @@ function renderLogin() {
     }
     btn.disabled = false;
   } },
+    h('img', { class: 'logo', src: 'icons/logo-mark.svg', alt: '', width: 92, height: 75 }),
     h('h1', null, 'Farrell Fitness'),
     h('p', { class: 'note' }, 'Sign in to your tracker.'),
     err,

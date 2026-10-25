@@ -9,7 +9,7 @@ const PRECACHE = [
   'assets/js/components.js', 'assets/js/tdee.js', 'assets/js/pwa.js',
   'assets/js/views/today.js', 'assets/js/views/food.js', 'assets/js/views/weight.js', 'assets/js/views/train.js',
   'assets/js/views/progress.js', 'assets/js/views/whoop.js', 'assets/js/views/settings.js',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
+  'icons/icon.svg', 'icons/logo-mark.svg', 'icons/favicon-32.png', 'icons/icon-192.png', 'icons/apple-touch-icon.png',
   'assets/fonts/barlow-latin-400-normal.woff2', 'assets/fonts/barlow-latin-500-normal.woff2', 'assets/fonts/barlow-latin-600-normal.woff2',
   'assets/fonts/barlow-condensed-latin-500-normal.woff2', 'assets/fonts/barlow-condensed-latin-600-normal.woff2', 'assets/fonts/barlow-condensed-latin-700-normal.woff2',
 ];

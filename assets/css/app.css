@@ -77,7 +77,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
     display: flex; flex-direction: column; gap: 4px; width: 248px; flex: none;
     position: sticky; top: 0; height: 100vh; padding: 28px 16px; background: var(--deep); color: var(--on-deep);
   }
-  .sidebar .brand { font: 700 26px/1 var(--display); padding: 0 12px 24px; }
+  .sidebar .brand { font: 700 26px/1 var(--display); padding: 0 12px 24px; display: flex; align-items: center; gap: 10px; }
+  .sidebar .brand img { width: 34px; height: 28px; flex: none; }
   .sidebar a { height: 44px; border-radius: 10px; padding: 0 12px; display: flex; align-items: center; gap: 12px; color: var(--on-deep-muted); font-weight: 500; text-decoration: none; }
   .sidebar a:hover { color: #fff; background: rgba(255,255,255,0.05); }
   .sidebar a[aria-current="page"] { background: var(--deep-2); color: #fff; font-weight: 600; }
@@ -262,7 +263,9 @@ button.list-row:first-child { border-top: 0; }
 
 .login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
 .login .card { width: 100%; max-width: 400px; padding: 28px; gap: 14px; }
-.login h1 { font: 700 40px/1 var(--display); }
+.login h1 { font: 700 40px/1 var(--display); text-align: center; }
+.login h1 + .note { text-align: center; }
+.login .logo { width: 92px; height: auto; align-self: center; margin-bottom: 4px; }
 
 body.logged-out .tabbar, body.logged-out .sidebar { display: none !important; }
 body.logged-out .content { padding-bottom: 0; }
