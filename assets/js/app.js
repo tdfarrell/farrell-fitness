@@ -24,6 +24,8 @@ const TITLES = { today: 'Today', food: 'Food log', plans: 'Meal plans', weight: 
 // Which bottom tab lights up for each screen.
 const TAB = { today: 'today', food: 'food', plans: 'food', train: 'train' };
 const root = document.getElementById('view');
+const scroller = document.querySelector('.content');
+let lastScreen = null;
 let cleanup = null;
 let renderSeq = 0;
 
@@ -56,6 +58,10 @@ async function route() {
 
   const view = VIEWS[name] || today;
   const current = VIEWS[name] ? name : 'today';
+  // The content area is the scroller now, so a new screen starts at the top. Re-renders of the
+  // same screen (after a quick add, a sync) keep their place.
+  const screen = location.hash.split('?')[0];
+  if (screen !== lastScreen) { scroller.scrollTop = 0; lastScreen = screen; }
   document.querySelectorAll('[data-route]').forEach(a => {
     if (a.dataset.route === current) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
