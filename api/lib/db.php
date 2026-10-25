@@ -4,7 +4,7 @@
 function config(): array {
     static $cfg = null;
     if ($cfg === null) {
-        $path = (PHP_SAPI === 'cli' && getenv('FF_CONFIG')) ? getenv('FF_CONFIG') : __DIR__ . '/../config.php';
+        $path = ((PHP_SAPI === 'cli' || PHP_SAPI === 'cli-server') && getenv('FF_CONFIG')) ? getenv('FF_CONFIG') : __DIR__ . '/../config.php';
         if (!file_exists($path)) {
             throw new RuntimeException('Not installed: api/config.php is missing. Open /install.php.');
         }
@@ -243,6 +243,120 @@ function schema_sql(string $driver): array {
             max_hr INT,
             UNIQUE (user_id, whoop_id)
         )",
+        "meta (
+            k VARCHAR(40) NOT NULL PRIMARY KEY,
+            v VARCHAR(255)
+        )",
+        "meal_plans (
+            id $pk,
+            user_id INT NOT NULL,
+            name VARCHAR(80) NOT NULL,
+            items TEXT NOT NULL,
+            position INT NOT NULL DEFAULT 0,
+            updated_at INT NOT NULL
+        )",
+        "cardio (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            start_time VARCHAR(5),
+            activity VARCHAR(40) NOT NULL,
+            duration_s INT,
+            distance_m DOUBLE,
+            avg_hr INT,
+            max_hr INT,
+            elevation_m DOUBLE,
+            effort INT,
+            kcal DOUBLE,
+            reps INT,
+            notes TEXT,
+            whoop_id VARCHAR(40),
+            created_at INT NOT NULL
+        )",
+        "health_items (
+            id $pk,
+            user_id INT NOT NULL,
+            name VARCHAR(120) NOT NULL,
+            dose VARCHAR(80),
+            kind VARCHAR(16) NOT NULL DEFAULT 'supplement',
+            time_of_day VARCHAR(16) NOT NULL DEFAULT 'morning',
+            supply INT,
+            active INT NOT NULL DEFAULT 1,
+            position INT NOT NULL DEFAULT 0,
+            created_at INT NOT NULL
+        )",
+        "health_doses (
+            id $pk,
+            user_id INT NOT NULL,
+            item_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            taken_at INT NOT NULL,
+            UNIQUE (item_id, date)
+        )",
+        "labs (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            marker VARCHAR(80) NOT NULL,
+            value DOUBLE NOT NULL,
+            unit VARCHAR(24),
+            ref_low DOUBLE,
+            ref_high DOUBLE,
+            note VARCHAR(255)
+        )",
+        "glucose (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            time VARCHAR(5),
+            mg_dl DOUBLE NOT NULL,
+            context VARCHAR(24),
+            note VARCHAR(255),
+            created_at INT NOT NULL
+        )",
+        "measurements (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            kind VARCHAR(24) NOT NULL,
+            value DOUBLE NOT NULL,
+            value2 DOUBLE,
+            note VARCHAR(255),
+            UNIQUE (user_id, date, kind)
+        )",
+        "habits (
+            id $pk,
+            user_id INT NOT NULL,
+            name VARCHAR(80) NOT NULL,
+            slot VARCHAR(16) NOT NULL DEFAULT 'day',
+            kind VARCHAR(16) NOT NULL DEFAULT 'check',
+            target DOUBLE,
+            active INT NOT NULL DEFAULT 1,
+            position INT NOT NULL DEFAULT 0,
+            created_at INT NOT NULL
+        )",
+        "habit_logs (
+            id $pk,
+            user_id INT NOT NULL,
+            habit_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            done INT NOT NULL DEFAULT 0,
+            value DOUBLE,
+            UNIQUE (habit_id, date)
+        )",
+        "journal (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            mood INT,
+            energy INT,
+            stress INT,
+            body TEXT,
+            tags TEXT,
+            context TEXT,
+            updated_at INT NOT NULL,
+            UNIQUE (user_id, date)
+        )",
     ];
     $sql = array_map(fn($x) => "CREATE TABLE IF NOT EXISTS $x$tail", $t);
     $idx = [
@@ -250,11 +364,30 @@ function schema_sql(string $driver): array {
         'workouts_user_date' => 'workouts (user_id, date)',
         'sets_workout' => 'workout_sets (workout_id)',
         'foods_barcode' => 'foods (user_id, barcode)',
+        'cardio_user_date' => 'cardio (user_id, date)',
+        'doses_user_date' => 'health_doses (user_id, date)',
+        'labs_user_date' => 'labs (user_id, date)',
+        'glucose_user_date' => 'glucose (user_id, date)',
+        'habit_logs_user_date' => 'habit_logs (user_id, date)',
     ];
     foreach ($idx as $name => $on) {
         $sql[] = $driver === 'sqlite' ? "CREATE INDEX IF NOT EXISTS $name ON $on" : "CREATE INDEX $name ON $on";
     }
     return $sql;
+}
+
+// Bump when the schema changes. Existing databases are brought up to date on the next request.
+const SCHEMA_VERSION = 2;
+
+/** Columns added after the first release: [table, column, type]. */
+function added_columns(): array {
+    return [
+        ['whoop_daily', 'step_count', 'INT'],
+        ['whoop_workouts', 'distance_m', 'DOUBLE'],
+        ['whoop_workouts', 'altitude_gain_m', 'DOUBLE'],
+        ['whoop_workouts', 'zones', 'TEXT'],
+        ['whoop_workouts', 'percent_recorded', 'DOUBLE'],
+    ];
 }
 
 function run_schema(PDO $pdo, string $driver): void {
@@ -266,4 +399,24 @@ function run_schema(PDO $pdo, string $driver): void {
             throw $e;
         }
     }
+    foreach (added_columns() as [$table, $col, $type]) {
+        try { $pdo->exec("ALTER TABLE $table ADD COLUMN $col $type"); }
+        catch (PDOException $e) {
+            // Already there (fresh install, or a migration that ran before).
+            if (stripos($e->getMessage(), 'duplicate') !== false) continue;
+            throw $e;
+        }
+    }
+    $st = $pdo->prepare('SELECT v FROM meta WHERE k = ?');
+    $st->execute(['schema_version']);
+    if ($st->fetchColumn() === false) $pdo->prepare('INSERT INTO meta (k, v) VALUES (?, ?)')->execute(['schema_version', (string) SCHEMA_VERSION]);
+    else $pdo->prepare('UPDATE meta SET v = ? WHERE k = ?')->execute([(string) SCHEMA_VERSION, 'schema_version']);
+}
+
+/** Brings an existing database up to SCHEMA_VERSION. Cheap when it's already current. */
+function ensure_schema(): void {
+    try { $v = (int) q_val("SELECT v FROM meta WHERE k = 'schema_version'"); }
+    catch (PDOException $e) { $v = 1; } // meta table doesn't exist yet: first release
+    if ($v >= SCHEMA_VERSION) return;
+    run_schema(db(), config()['db']['driver'] ?? 'mysql');
 }

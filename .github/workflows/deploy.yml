@@ -33,6 +33,8 @@ jobs:
         run: node tests/tdee.test.mjs
       - name: Food and WHOOP parser tests
         run: php tests/parsers_test.php
+      - name: API tests (including the database migration)
+        run: php tests/api_test.php
 
   deploy:
     needs: test

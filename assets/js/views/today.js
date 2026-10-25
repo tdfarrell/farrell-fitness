@@ -1,10 +1,11 @@
-import { h, icon, fmt0, fmt1, signed, longDate, todayISO, recoveryColor, relDay } from '../ui.js';
-import { get } from '../api.js';
+import { h, icon, fmt0, fmt1, signed, longDate, todayISO, recoveryColor, relDay, toast } from '../ui.js';
+import { get, post } from '../api.js';
 import { state, loadSummary, fmtW, wUnit, toDisplayW } from '../store.js';
 import { pageHead, calorieCard, whoopCard } from '../components.js';
 import { chart, sparkline, dateTicks } from '../charts.js';
 import { openWeightSheet } from './weight.js';
 import { openAddFood } from './food.js';
+import { habitRow } from './habits.js';
 
 export async function render(root) {
   await loadSummary();
@@ -17,7 +18,12 @@ export async function render(root) {
   const recent7 = days.slice(-7).map(d => d.whoop?.recovery).filter(v => v != null);
   const avgRec = recent7.length ? recent7.reduce((a, b) => a + b, 0) / recent7.length : null;
 
-  const workoutsRes = await get('workouts', { from: days[Math.max(0, days.length - 14)].date, to: today }).catch(() => ({ workouts: [], whoop: [] }));
+  const [workoutsRes, hb, meds, jr] = await Promise.all([
+    get('workouts', { from: days[Math.max(0, days.length - 14)].date, to: today }).catch(() => ({ workouts: [], whoop: [] })),
+    get('habits', { date: today, days: 7 }).catch(() => null),
+    get('health/items', { date: today }).catch(() => null),
+    get('journal', { date: today }).catch(() => null),
+  ]);
   const s28 = model.series.slice(-28);
   const s56 = model.series.slice(-56);
 
@@ -107,6 +113,46 @@ export async function render(root) {
       : h('p', { class: 'note' }, 'No sessions in the last two weeks.'),
     h('a', { class: 'btn sm', href: '#/train/new', style: { alignSelf: 'flex-start' } }, 'Start workout'));
 
+  // Habits: progress plus the next few that aren't done.
+  const habitsCard = hb && hb.habits.length ? (() => {
+    const list = hb.habits;
+    const done = list.filter(x => x.done).length;
+    const todo = list.filter(x => !x.done).slice(0, 4);
+    return h('section', { class: 'card grow-2', 'aria-label': 'Habits' },
+      h('div', { class: 'card-head', style: { alignItems: 'center' } }, h('h2', null, 'Habits'), h('a', { href: '#/habits', style: { fontWeight: 600, fontSize: '14px' } }, `${done} of ${list.length} done`)),
+      h('div', { class: 'habit-segs', role: 'img', 'aria-label': `${done} of ${list.length} habits done` }, list.map((x, i) => h('div', { class: i < done ? 'on' : '' }))),
+      todo.length ? h('div', { class: 'list' }, todo.map(x => habitRow(x, today, () => rerender(root))))
+        : h('p', { class: 'note' }, 'Everything is done for today.'));
+  })() : null;
+
+  // Meds and supplements: tap to mark taken.
+  const medsCard = meds && meds.items.length ? (() => {
+    const box = h('div', { class: 'pills' });
+    const draw = (items) => box.replaceChildren(...items.map(i => h('button', { class: 'pill med-pill', 'aria-pressed': String(!!i.taken_at), onclick: async () => {
+      try { const r = await post('health/dose', { item_id: i.id, date: today, taken: !i.taken_at }); draw(r.items); }
+      catch (e) { toast(e.message, 'error'); }
+    } }, i.taken_at ? icon('check', 16) : null, i.name)));
+    draw(meds.items);
+    return h('section', { class: 'card grow-2', 'aria-label': 'Medications and supplements' },
+      h('div', { class: 'card-head', style: { alignItems: 'center' } }, h('h2', null, 'Meds and supplements'), h('a', { href: '#/health', style: { fontWeight: 600, fontSize: '14px' } }, 'Health')),
+      box);
+  })() : null;
+
+  const tw = tday.whoop;
+  const stepGoal = hb?.habits.find(x => x.kind === 'steps')?.target || 10000;
+  const stepsCard = tw?.step_count != null ? h('a', { class: 'card', href: '#/health', style: { textDecoration: 'none', color: 'inherit', gap: '4px' }, 'aria-label': 'Steps' },
+    h('span', { class: 'small muted', style: { fontWeight: 500 } }, 'Steps, WHOOP'),
+    h('span', { class: 'num', style: { fontSize: '34px' } }, fmt0(tw.step_count)),
+    h('span', { class: 'small muted' }, `of ${fmt0(stepGoal)} goal`),
+    h('div', { class: 'meter', style: { marginTop: '6px' } }, h('div', { style: { width: `${Math.min(100, tw.step_count / stepGoal * 100)}%`, background: 'var(--primary)' } }))) : null;
+  const journalCard = h('a', { class: 'linkcard', href: '#/journal', style: { flex: '1 1 260px' } },
+    h('span', { style: { display: 'flex', alignItems: 'center', gap: '14px' } },
+      h('span', { class: 'journal-ic', 'aria-hidden': 'true' }, icon('journal')),
+      h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+        h('span', { style: { fontWeight: 600 } }, 'Journal'),
+        h('span', { class: 'small muted' }, jr?.entry ? 'Today’s entry is saved. Add to it?' : 'How did today go?'))),
+    icon('right', 20));
+
   const checkinLink = h('a', { class: 'linkcard', href: '#/progress' },
     h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
       h('span', { style: { fontWeight: 600 } }, checkin.due ? 'Your weekly check-in is ready' : settings.program === 'manual' ? 'Progress and check-ins' : `Weekly check-in is ${relDay(checkin.next) === 'Today' ? 'today' : weekdayName(checkin.next)}`),
@@ -119,7 +165,9 @@ export async function render(root) {
       intro,
       checkin.due ? checkinLink : null,
       h('div', { class: 'row' }, kcalCard, h('div', { class: 'grow-2', style: { display: 'flex' } }, whoopCard(w, summary.whoop, avgRec))),
+      habitsCard || medsCard ? h('div', { class: 'row' }, habitsCard, medsCard) : null,
       smallCards,
+      h('div', { class: 'row' }, stepsCard ? h('div', { style: { flex: '1 1 260px', display: 'flex', flexDirection: 'column' } }, stepsCard) : null, journalCard),
       h('div', { class: 'row desk-only' }, weightChart, expChart),
       h('div', { class: 'row' }, intakeChart, trainingCard),
       checkin.due ? null : checkinLink));

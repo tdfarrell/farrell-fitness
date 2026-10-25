@@ -1,7 +1,7 @@
 // API client. Writes made while offline are queued and replayed when the connection returns.
 
 const OUTBOX_KEY = 'ff_outbox_v1';
-const QUEUEABLE = new Set(['diary/add', 'diary/delete', 'weights/save', 'workouts/save', 'day/status']);
+const QUEUEABLE = new Set(['diary/add', 'diary/delete', 'weights/save', 'workouts/save', 'day/status', 'cardio/save', 'habits/log', 'glucose/save', 'journal/save']);
 
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }

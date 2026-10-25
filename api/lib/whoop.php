@@ -120,6 +120,14 @@ function whoop_local_date(string $iso, ?string $offset): string {
     return $dt->format('Y-m-d');
 }
 
+/** Heart rate zone durations as JSON seconds [zone0..zone5], or null. */
+function whoop_zones($z): ?string {
+    if (!is_array($z)) return null;
+    $names = ['zero', 'one', 'two', 'three', 'four', 'five'];
+    $out = array_map(fn($n) => isset($z["zone_{$n}_milli"]) ? (int) round($z["zone_{$n}_milli"] / 1000) : 0, $names);
+    return array_sum($out) ? json_encode($out) : null;
+}
+
 function ms_to_h($ms): ?float { return $ms === null ? null : round($ms / 3600000, 2); }
 
 function whoop_sync(int $uid, ?int $days = null): array {
@@ -146,6 +154,8 @@ function whoop_sync(int $uid, ?int $days = null): array {
             'kcal' => isset($s['kilojoule']) ? round($s['kilojoule'] / 4.184) : null,
             'avg_hr' => $s['average_heart_rate'] ?? null,
             'max_hr' => $s['max_heart_rate'] ?? null,
+            // Added to the API in September 2026; null when the strap wasn't worn.
+            'step_count' => isset($c['step_count']) ? (int) $c['step_count'] : (isset($s['step_count']) ? (int) $s['step_count'] : null),
         ];
     }
 
@@ -195,6 +205,10 @@ function whoop_sync(int $uid, ?int $days = null): array {
             'strain' => isset($s['strain']) ? round($s['strain'], 1) : null,
             'kcal' => isset($s['kilojoule']) ? round($s['kilojoule'] / 4.184) : null,
             'avg_hr' => $s['average_heart_rate'] ?? null, 'max_hr' => $s['max_heart_rate'] ?? null,
+            'distance_m' => isset($s['distance_meter']) ? round($s['distance_meter'], 1) : null,
+            'altitude_gain_m' => isset($s['altitude_gain_meter']) ? round($s['altitude_gain_meter'], 1) : null,
+            'percent_recorded' => isset($s['percent_recorded']) ? round($s['percent_recorded'], 1) : null,
+            'zones' => whoop_zones($s['zone_durations'] ?? null),
         ]);
         $workouts++;
     }

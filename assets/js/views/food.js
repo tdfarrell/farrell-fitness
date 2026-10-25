@@ -56,9 +56,17 @@ export async function render(root, params) {
       date < todayISO() ? h('a', { class: 'icon-btn', href: `#/food/${addDays(date, 1)}`, 'aria-label': 'Next day' }, icon('right'))
         : h('span', { style: { width: '44px' } })),
     h('div', { class: 'stack' },
+      foodSwitch('diary'),
       totalsCard,
       h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '-6px' } }, statusBtn),
       h('div', { class: 'diary-grid' }, mealCards)));
+}
+
+/** Diary | Plan switch shared by the food log and meal plans. */
+export function foodSwitch(current) {
+  return h('nav', { class: 'segmented big', 'aria-label': 'Food sections' },
+    h('a', { href: '#/food', 'aria-current': current === 'diary' ? 'page' : null }, 'Diary'),
+    h('a', { href: '#/plans', 'aria-current': current === 'plan' ? 'page' : null }, 'Plan'));
 }
 
 function openDayStatus(date, current, refresh) {
@@ -110,7 +118,7 @@ function unitOptions(food) {
 }
 
 /** Amount + unit inputs with a live macro preview. Calls onSubmit({grams, quantity, portion_label}). */
-function amountEditor(food, { initialGrams, submitLabel = 'Add', onSubmit, extra }) {
+export function amountEditor(food, { initialGrams, submitLabel = 'Add', onSubmit, extra }) {
   const units = unitOptions(food);
   let unitIdx = food.portions?.length ? 2 : 0;
   let amount = food.portions?.length ? 1 : 100;
@@ -160,11 +168,17 @@ function amountEditor(food, { initialGrams, submitLabel = 'Add', onSubmit, extra
 
 /* ======================= add-food sheet ======================= */
 
-export function openAddFood({ date, meal, onDone }) {
+/**
+ * The add-food sheet. By default it adds to the food log for `date`.
+ * Pass `target` ({ name, add(food, amt, meal), addQuick(quick, meal) }) to add somewhere else, such as a meal plan.
+ * Pass `scan: true` to open the barcode scanner straight away.
+ */
+export function openAddFood({ date, meal, onDone, target = null, scan = false }) {
   const meals = state.settings?.meals || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
   let added = 0;
+  const titleFor = (m) => target ? `Add to ${target.name}: ${m.toLowerCase()}` : `Add to ${m.toLowerCase()}`;
   openSheet({
-    title: `Add to ${meal.toLowerCase()}`,
+    title: titleFor(meal),
     tall: true,
     onClose: () => { if (added) onDone?.(); },
     body: (sheet) => {
@@ -173,7 +187,7 @@ export function openAddFood({ date, meal, onDone }) {
       let expanded = null;
       const mealSel = h('select', { class: 'input', 'aria-label': 'Meal', style: { width: 'auto', height: '40px' } },
         meals.map(m => h('option', { selected: m === meal }, m)));
-      mealSel.addEventListener('change', () => { meal = mealSel.value; sheet.setTitle(`Add to ${meal.toLowerCase()}`); });
+      mealSel.addEventListener('change', () => { meal = mealSel.value; sheet.setTitle(titleFor(meal)); });
       const qIn = h('input', { type: 'search', placeholder: 'Search foods', 'aria-label': 'Search foods', autocomplete: 'off', enterkeyhint: 'search' });
       const list = h('div', { class: 'list', 'aria-live': 'polite' });
       const tabs = h('div', { class: 'pills', role: 'tablist', 'aria-label': 'Food sources' });
@@ -182,9 +196,9 @@ export function openAddFood({ date, meal, onDone }) {
 
       const addFood = async (food, amt) => {
         try {
-          const r = await post('diary/add', { date, meal, food: food.id ? food.id : food, ...amt });
-          added++; markStale();
-          toast(r.queued ? `Saved offline: ${food.name}` : `Added ${food.name}`);
+          const r = target ? await target.add(food, amt, meal) : await post('diary/add', { date, meal, food: food.id ? food.id : food, ...amt });
+          added++; if (!target) markStale();
+          toast(r?.queued ? `Saved offline: ${food.name}` : `Added ${food.name}`);
           expanded = null; draw(lastItems);
         } catch (e) { toast(e.message, 'error'); }
       };
@@ -248,7 +262,7 @@ export function openAddFood({ date, meal, onDone }) {
       qIn.addEventListener('input', debounce(() => { query = qIn.value.trim(); if (tab !== 'search') { tab = 'search'; drawTabs(); } load(); }, 350));
 
       const actions = h('div', { class: 'row', style: { gap: '8px' } },
-        h('button', { class: 'btn sm', onclick: () => openQuickAdd({ date, meal, onDone: () => { added++; } }) }, 'Quick add'),
+        h('button', { class: 'btn sm', onclick: () => openQuickAdd({ date, meal, target, onDone: () => { added++; } }) }, 'Quick add'),
         h('button', { class: 'btn sm', onclick: () => openFoodEditor({ onSaved: (f) => { tab = 'mine'; drawTabs(); expanded = `custom:${f.source_id}`; load(); } }) }, 'Create food'),
         h('button', { class: 'btn sm', onclick: () => openRecipeEditor({ onSaved: () => { tab = 'recipe'; drawTabs(); load(); } }) }, 'New recipe'));
 
@@ -262,7 +276,9 @@ export function openAddFood({ date, meal, onDone }) {
         actions);
       drawTabs();
       tab = 'recent'; drawTabs(); load();
-      setTimeout(() => qIn.focus(), 50);
+      const onScanned = (f) => { tab = 'search'; drawTabs(); expanded = `${f.source}:${f.source_id || f.id}`; draw([f]); };
+      if (scan) openScanner({ onFood: onScanned });
+      else setTimeout(() => qIn.focus(), 50);
     },
   });
 }
@@ -274,7 +290,7 @@ function numField(label, id, value = '') {
 }
 const val = (root, id) => parseFloat((root.querySelector('#' + id)?.value || '').replace(',', '.'));
 
-export function openQuickAdd({ date, meal, onDone }) {
+export function openQuickAdd({ date, meal, onDone, target = null }) {
   const s = openSheet({
     title: 'Quick add',
     body: h('form', { class: 'stack', onsubmit: async (e) => {
@@ -282,8 +298,11 @@ export function openQuickAdd({ date, meal, onDone }) {
       const f = e.target;
       const quick = { name: f.querySelector('#qa-name').value.trim() || 'Quick add', kcal: val(f, 'qa-kcal') || 0, protein: val(f, 'qa-p') || 0, carbs: val(f, 'qa-c') || 0, fat: val(f, 'qa-f') || 0 };
       if (!quick.kcal && !quick.protein && !quick.carbs && !quick.fat) { toast('Enter calories or macros', 'error'); return; }
-      const r = await post('diary/add', { date, meal, quick });
-      markStale(); toast(r.queued ? 'Saved offline' : 'Added'); s.close(); onDone?.();
+      try {
+        const r = target ? await target.addQuick(quick, meal) : await post('diary/add', { date, meal, quick });
+        if (!target) markStale();
+        toast(r?.queued ? 'Saved offline' : 'Added'); s.close(); onDone?.();
+      } catch (err) { toast(err.message, 'error'); }
     } },
       h('label', { class: 'field', for: 'qa-name' }, 'Name', h('input', { id: 'qa-name', placeholder: 'Restaurant meal' })),
       h('div', { class: 'grid-2' }, numField('Calories', 'qa-kcal'), numField('Protein (g)', 'qa-p')),
@@ -420,55 +439,133 @@ export function openRecipeEditor({ recipe = null, onSaved } = {}) {
 
 /* ======================= barcode scanner ======================= */
 
-function openScanner({ onFood }) {
+// Chrome on Android and desktop has a built-in barcode reader (BarcodeDetector). Safari doesn't,
+// so on iPhone the app loads a small decoder (ZXing, self-hosted) and reads frames itself.
+let zxingLoad = null;
+function loadZXing() {
+  if (window.ZXing) return Promise.resolve(window.ZXing);
+  zxingLoad ||= new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = 'assets/vendor/zxing.min.js';
+    sc.onload = () => (window.ZXing ? resolve(window.ZXing) : reject(new Error('Scanner failed to load')));
+    sc.onerror = () => { zxingLoad = null; reject(new Error("Couldn't load the scanner. Check your connection.")); };
+    document.head.append(sc);
+  });
+  return zxingLoad;
+}
+
+async function makeDetector() {
+  if ('BarcodeDetector' in window) {
+    try {
+      const formats = await window.BarcodeDetector.getSupportedFormats?.() || [];
+      if (!formats.length || formats.includes('ean_13')) {
+        const det = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+        const fn = async (video) => (await det.detect(video))[0]?.rawValue || null;
+        fn.native = true;
+        return fn;
+      }
+    } catch { /* fall back to ZXing */ }
+  }
+  const Z = await loadZXing();
+  const hints = new Map();
+  hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E]);
+  hints.set(Z.DecodeHintType.TRY_HARDER, true);
+  const reader = new Z.MultiFormatReader();
+  reader.setHints(hints);
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  return async (video) => {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    // Read the middle band of the frame, where the guide box is. Smaller and faster than the full frame.
+    const cw = Math.round(vw * 0.86), ch = Math.round(vh * 0.42);
+    const scale = Math.min(1, 960 / cw);
+    canvas.width = Math.round(cw * scale); canvas.height = Math.round(ch * scale);
+    ctx.drawImage(video, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, canvas.width, canvas.height);
+    try {
+      const bmp = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+      return reader.decode(bmp).getText();
+    } catch { return null; } finally { reader.reset(); }
+  };
+}
+
+/** Full-screen camera scanner. Calls onFood(food) when a barcode matches. */
+export function openScanner({ onFood }) {
   let stream = null;
   let stopped = false;
-  const lookup = async (code, s) => {
+  const stop = () => { stopped = true; stream?.getTracks().forEach(t => t.stop()); stream = null; };
+  const lookup = async (code) => {
+    status.textContent = `Looking up ${code}…`;
     try {
       const r = await get('foods/barcode', { code });
-      s.close(); onFood(r.food);
+      close(); onFood(r.food);
     } catch (e) {
-      s.close();
+      close();
       if (e.status === 404) { toast('No match for that barcode. Enter it as your own food.'); openFoodEditor({ barcode: code, onSaved: (f) => f && onFood(f) }); }
       else toast(e.message, 'error');
     }
   };
-  const s = openSheet({
-    title: 'Scan barcode',
-    onClose: () => { stopped = true; stream?.getTracks().forEach(t => t.stop()); },
-    body: (sheet) => {
-      const manual = h('form', { class: 'row', style: { alignItems: 'flex-end' }, onsubmit: (e) => { e.preventDefault(); const c = e.target.querySelector('input').value.replace(/\D/g, ''); if (c) lookup(c, sheet); } },
-        h('label', { class: 'field', style: { flex: 1 } }, 'Or type the number', h('input', { inputmode: 'numeric', autocomplete: 'off' })),
-        h('button', { class: 'btn primary', type: 'submit', style: { height: '46px' } }, 'Look up'));
-      if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
-        sheet.body.append(h('p', { class: 'note' }, "This browser can't scan barcodes with the camera. Chrome on Android and desktop can; on iPhone, type the number under the barcode."), manual);
-        return;
+  const status = h('p', { class: 'scan-status', role: 'status' }, 'Starting the camera…');
+  const video = h('video', { playsinline: true, muted: true, autoplay: true, 'aria-label': 'Camera preview' });
+  video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', '');
+  const torchBtn = h('button', { class: 'scan-round', type: 'button', hidden: true, 'aria-label': 'Turn on flashlight', 'aria-pressed': 'false' }, icon('torch'));
+  const manual = h('form', { class: 'scan-manual', onsubmit: (e) => { e.preventDefault(); const c = e.target.querySelector('input').value.replace(/\D/g, ''); if (c.length >= 6) { stop(); lookup(c); } else toast('Enter the full number under the barcode', 'error'); } },
+    h('label', { class: 'sr', for: 'scan-code' }, 'Barcode number'),
+    h('input', { id: 'scan-code', inputmode: 'numeric', autocomplete: 'off', placeholder: 'Or type the number' }),
+    h('button', { class: 'btn sm', type: 'submit' }, 'Look up'));
+  const overlay = h('div', { class: 'scanner-full', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Scan a barcode' },
+    h('div', { class: 'scan-top' },
+      h('button', { class: 'scan-round', type: 'button', 'aria-label': 'Close scanner', onclick: () => close() }, icon('close')),
+      h('span', { class: 'scan-title' }, 'Scan barcode'),
+      torchBtn),
+    h('div', { class: 'scan-stage' }, video, h('div', { class: 'scan-frame', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i'), h('b'))),
+    status, manual);
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  function close() {
+    stop(); overlay.remove(); document.removeEventListener('keydown', onKey);
+    document.body.style.overflow = document.querySelector('.scrim') ? 'hidden' : '';
+  }
+  document.body.append(overlay);
+  document.body.style.overflow = 'hidden';
+  document.addEventListener('keydown', onKey);
+
+  (async () => {
+    if (!navigator.mediaDevices?.getUserMedia) { status.textContent = "This browser can't use the camera here. Type the number under the barcode."; return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      if (stopped) { stop(); return; }
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      const track = stream.getVideoTracks()[0];
+      if (track?.getCapabilities?.().torch) {
+        torchBtn.hidden = false;
+        torchBtn.onclick = async () => {
+          const on = torchBtn.getAttribute('aria-pressed') !== 'true';
+          try { await track.applyConstraints({ advanced: [{ torch: on }] }); torchBtn.setAttribute('aria-pressed', String(on)); } catch {}
+        };
       }
-      const video = h('video', { playsinline: true, muted: true, autoplay: true, 'aria-label': 'Camera preview' });
-      sheet.body.append(h('div', { class: 'scanner' }, video), h('p', { class: 'note small' }, 'Hold the barcode inside the frame.'), manual);
-      (async () => {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
-          video.srcObject = stream;
-          await video.play();
-          const det = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
-          const tick = async () => {
-            if (stopped) return;
-            try {
-              const codes = await det.detect(video);
-              if (codes.length) { stopped = true; navigator.vibrate?.(60); lookup(codes[0].rawValue, sheet); return; }
-            } catch { /* frame not ready */ }
-            setTimeout(tick, 250);
-          };
-          tick();
-        } catch {
-          sheet.body.prepend(h('p', { class: 'banner' }, 'Camera access was blocked. Allow camera access for this site, or type the number.'));
-          video.parentElement.remove();
-        }
-      })();
-    },
-  });
+    } catch {
+      status.textContent = 'Camera access was blocked. Allow the camera for this site in your browser settings, or type the number.';
+      overlay.querySelector('.scan-stage').classList.add('off');
+      return;
+    }
+    let detect;
+    try { detect = await makeDetector(); } catch (e) { status.textContent = `${e.message} You can type the number instead.`; return; }
+    status.textContent = 'Hold the barcode inside the frame.';
+    let last = '', hits = 0;
+    const tick = async () => {
+      if (stopped) return;
+      let code = null;
+      try { code = await detect(video); } catch { /* frame not ready */ }
+      if (code && /^\d{6,14}$/.test(code)) {
+        // Two matching reads in a row avoids acting on a misread.
+        hits = code === last ? hits + 1 : 1; last = code;
+        if (hits >= 2 || detect.native) { navigator.vibrate?.(60); stop(); lookup(code); return; }
+      }
+      setTimeout(tick, 120);
+    };
+    tick();
+  })();
 }
 
 /* ======================= edit a logged entry ======================= */

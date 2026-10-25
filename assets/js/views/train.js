@@ -3,6 +3,7 @@ import { get, post } from '../api.js';
 import { state, loadSummary, wUnit, liftDisplay, fromDisplayW, toDisplayW } from '../store.js';
 import { pageHead, loading } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
+import { trainSwitch, renderCardio, renderCardioForm, renderProgress } from './cardio.js';
 
 const ACTIVE_KEY = 'ff_active_workout_v1';
 const histCache = new Map();
@@ -23,7 +24,14 @@ async function history(id) {
 
 export async function render(root, params) {
   await loadSummary();
-  const [a, b] = params;
+  const [a, b, c] = params;
+  if (a === 'cardio') {
+    if (b === 'new') return renderCardioForm(root);
+    if (b === 'whoop' && c) return renderCardioForm(root, { whoopId: decodeURIComponent(c) });
+    if (b && /^\d+$/.test(b)) return renderCardioForm(root, { id: +b });
+    return renderCardio(root);
+  }
+  if (a === 'progress') return renderProgress(root);
   if (a === 'new') return startWorkout(root, new URLSearchParams(location.hash.split('?')[1] || '').get('routine'));
   if (a === 'active') return renderActive(root);
   if (a === 'exercise' && b) return renderExercise(root, +b);
@@ -37,16 +45,15 @@ async function renderList(root) {
   const [routinesRes, wk, exs] = await Promise.all([get('routines'), get('workouts', { from: shiftDate(-90) }), exercises()]);
   const exName = Object.fromEntries(exs.map(e => [e.id, e.name]));
   const active = readActive();
-  const items = [
-    ...wk.workouts.map(w => ({ kind: 'lift', date: w.date, w })),
-    ...wk.whoop.filter(x => !/strength|weightlifting|functional/i.test(x.sport || '')).map(x => ({ kind: 'whoop', date: x.date, x })),
-  ].sort((p, q) => (p.date < q.date ? 1 : -1));
+  // Cardio from WHOOP lives on the Cardio tab; here WHOOP only adds strain to lifting days.
+  const items = wk.workouts.map(w => ({ kind: 'lift', date: w.date, w })).sort((p, q) => (p.date < q.date ? 1 : -1));
   const strainByDate = {};
-  wk.whoop.forEach(x => { if (/strength|weightlifting|functional/i.test(x.sport || '')) strainByDate[x.date] = x.strain; });
+  wk.whoop.forEach(x => { if (x.strength) strainByDate[x.date] = x.strain; });
 
   root.replaceChildren(
-    pageHead('Training', 'Train', [h('a', { class: 'btn sm', href: '#/train/new' }, 'Empty workout')]),
+    pageHead('Training', 'Train', [h('a', { class: 'btn sm primary', href: '#/train/new' }, 'Empty workout')]),
     h('div', { class: 'stack' },
+      trainSwitch('strength'),
       active ? h('a', { class: 'linkcard', href: '#/train/active' },
         h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
           h('span', { style: { fontWeight: 600 } }, `Resume ${active.name}`),
@@ -62,15 +69,12 @@ async function renderList(root) {
             : h('p', { class: 'note' }, 'Save the exercises you repeat as a routine to start them in one tap.')),
         h('section', { class: 'card grow-3', 'aria-label': 'History' },
           h('h2', null, 'Last 90 days'),
-          items.length ? h('div', { class: 'list' }, items.map(it => it.kind === 'lift'
-            ? h('a', { class: 'list-row', href: `#/train/${it.w.id}`, style: { textDecoration: 'none', color: 'inherit' } },
-                h('div', { class: 'main' }, h('span', { class: 'title' }, it.w.name),
-                  h('span', { class: 'small muted' }, `${relDay(it.w.date)}${it.w.duration_min ? `, ${it.w.duration_min} min` : ''}, ${it.w.set_count} sets, ${fmt0(toDisplayW(it.w.volume_kg))} ${wUnit()} volume`)),
-                strainByDate[it.date] != null ? h('span', { class: 'small muted' }, `Strain ${fmt1(strainByDate[it.date])}`) : null)
-            : h('div', { class: 'list-row' },
-                h('div', { class: 'main' }, h('span', { class: 'title' }, it.x.sport), h('span', { class: 'small muted' }, `${relDay(it.x.date)}, from WHOOP${it.x.kcal ? `, ${fmt0(it.x.kcal)} kcal` : ''}`)),
-                it.x.strain != null ? h('span', { class: 'small muted' }, `Strain ${fmt1(it.x.strain)}`) : null)))
-            : h('p', { class: 'note' }, 'No sessions yet. Start a routine or an empty workout.'))),
+          items.length ? h('div', { class: 'list' }, items.map(it =>
+            h('a', { class: 'list-row', href: `#/train/${it.w.id}`, style: { textDecoration: 'none', color: 'inherit' } },
+              h('div', { class: 'main' }, h('span', { class: 'title' }, it.w.name),
+                h('span', { class: 'small muted' }, `${relDay(it.w.date)}${it.w.duration_min ? `, ${it.w.duration_min} min` : ''}, ${it.w.set_count} sets, ${fmt0(toDisplayW(it.w.volume_kg))} ${wUnit()} volume`)),
+              strainByDate[it.date] != null ? h('span', { class: 'small muted' }, `Strain ${fmt1(strainByDate[it.date])}`) : null)))
+            : h('p', { class: 'note' }, 'No lifting sessions yet. Start a routine or an empty workout.'))),
       h('section', { class: 'card', 'aria-label': 'Exercises' },
         h('div', { class: 'card-head' }, h('h2', null, 'Exercises'), h('button', { class: 'btn sm ghost', onclick: () => editExercise(null, () => { exercisesCache = null; renderList(root); }) }, 'New exercise')),
         h('div', { class: 'pills' }, exs.map(e => h('a', { class: 'pill', href: `#/train/exercise/${e.id}`, style: { display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' } }, e.name))))));

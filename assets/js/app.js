@@ -11,9 +11,18 @@ import * as train from './views/train.js';
 import * as progress from './views/progress.js';
 import * as whoop from './views/whoop.js';
 import * as settings from './views/settings.js';
+import * as plans from './views/plans.js';
+import * as health from './views/health.js';
+import * as habits from './views/habits.js';
+import * as journal from './views/journal.js';
+import * as more from './views/more.js';
+import { openQuickAddMenu } from './quickadd.js';
 
-const VIEWS = { today, food, weight, train, progress, whoop, settings };
-const TITLES = { today: 'Today', food: 'Food log', weight: 'Weight', train: 'Training', progress: 'Progress', whoop: 'WHOOP', settings: 'Settings' };
+const VIEWS = { today, food, plans, weight, train, progress, whoop, settings, health, habits, journal, more };
+const TITLES = { today: 'Today', food: 'Food log', plans: 'Meal plans', weight: 'Weight', train: 'Training', progress: 'Progress', whoop: 'WHOOP',
+  settings: 'Settings', health: 'Health', habits: 'Habits', journal: 'Journal', more: 'More' };
+// Which bottom tab lights up for each screen.
+const TAB = { today: 'today', food: 'food', plans: 'food', train: 'train' };
 const root = document.getElementById('view');
 let cleanup = null;
 let renderSeq = 0;
@@ -46,8 +55,12 @@ async function route() {
   document.body.classList.remove('logged-out');
 
   const view = VIEWS[name] || today;
+  const current = VIEWS[name] ? name : 'today';
   document.querySelectorAll('[data-route]').forEach(a => {
-    if (a.dataset.route === (VIEWS[name] ? name : 'today')) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    if (a.dataset.route === current) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('[data-tab]').forEach(a => {
+    if (a.dataset.tab === (TAB[current] || 'more')) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   document.title = `${TITLES[name] || 'Today'} | Farrell Fitness`;
   // Each visit renders into its own container, so a late re-render from a screen
@@ -113,6 +126,12 @@ window.addEventListener('online', updateOnline);
 window.addEventListener('offline', updateOnline);
 
 window.addEventListener('hashchange', route);
+// The + button (bottom bar on phones, sidebar on desktop).
+document.addEventListener('click', (e) => {
+  if (e.target.closest?.('[data-quick-add]') && state.user) openQuickAddMenu();
+});
+// Anything that changes data from outside the current screen (quick add) asks for a re-render.
+window.addEventListener('ff:changed', () => { markStale(); route(); });
 registerServiceWorker((activate) => {
   const t = h('div', { class: 'toast', role: 'status' }, 'A new version is ready. ',
     h('button', { class: 'btn sm', style: { marginLeft: '8px', height: '32px' }, onclick: () => { activate(); t.remove(); } }, 'Update'));

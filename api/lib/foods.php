@@ -130,9 +130,17 @@ function off_lookup(string $code): ?array {
 function barcode_lookup(int $uid, string $code): ?array {
     $code = preg_replace('/\D/', '', $code);
     if (strlen($code) < 6) fail(400, 'That barcode is too short');
-    $local = q_one('SELECT * FROM foods WHERE user_id = ? AND barcode = ? AND archived = 0', [$uid, $code]);
-    if ($local) return food_row_out($local);
-    if ($f = off_lookup($code)) return $f;
+    // The same product can be read as a 12-digit UPC-A or a 13-digit EAN-13 (a leading 0), so try both.
+    $variants = array_values(array_unique(array_filter([
+        $code,
+        strlen($code) === 12 ? '0' . $code : null,
+        strlen($code) === 13 && $code[0] === '0' ? substr($code, 1) : null,
+    ])));
+    foreach ($variants as $v) {
+        $local = q_one('SELECT * FROM foods WHERE user_id = ? AND barcode = ? AND archived = 0', [$uid, $v]);
+        if ($local) return food_row_out($local);
+    }
+    foreach ($variants as $v) if ($f = off_lookup($v)) return $f;
     // USDA branded foods are searchable by UPC.
     $hits = usda_search($code, ['Branded'], 5);
     foreach ($hits as $h) if (ltrim((string) $h['barcode'], '0') === ltrim($code, '0')) return $h;

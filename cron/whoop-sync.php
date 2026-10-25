@@ -8,6 +8,7 @@ require __DIR__ . '/../api/lib/auth.php';
 require __DIR__ . '/../api/lib/whoop.php';
 
 config();
+ensure_schema();
 foreach (q_all('SELECT user_id FROM whoop_tokens') as $r) {
     try {
         $res = whoop_sync((int) $r['user_id']);

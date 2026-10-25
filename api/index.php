@@ -8,6 +8,10 @@ require __DIR__ . '/lib/auth.php';
 require __DIR__ . '/lib/settings.php';
 require __DIR__ . '/lib/foods.php';
 require __DIR__ . '/lib/whoop.php';
+require __DIR__ . '/lib/plans.php';
+require __DIR__ . '/lib/cardio.php';
+require __DIR__ . '/lib/health.php';
+require __DIR__ . '/lib/habits.php';
 
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
@@ -17,6 +21,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 try {
     config();
+    ensure_schema();
     // Routes that do their own auth / produce non-JSON output.
     if ($route === 'whoop/connect') { route_whoop_connect(); exit; }
     if ($route === 'whoop/callback') { route_whoop_callback(); exit; }
@@ -311,7 +316,8 @@ function route_workouts(int $uid, string $m) {
         'workouts' => array_map(fn($w) => workout_out($w, false), $rows),
         'whoop' => array_map(fn($w) => ['id' => $w['whoop_id'], 'date' => $w['date'], 'sport' => $w['sport'], 'start_at' => $w['start_at'], 'end_at' => $w['end_at'],
             'strain' => $w['strain'] === null ? null : (float) $w['strain'], 'kcal' => $w['kcal'] === null ? null : (float) $w['kcal'],
-            'avg_hr' => $w['avg_hr'] === null ? null : (int) $w['avg_hr'], 'max_hr' => $w['max_hr'] === null ? null : (int) $w['max_hr']], $whoop),
+            'avg_hr' => $w['avg_hr'] === null ? null : (int) $w['avg_hr'], 'max_hr' => $w['max_hr'] === null ? null : (int) $w['max_hr'],
+            'distance_m' => $w['distance_m'] === null ? null : (float) $w['distance_m'], 'strength' => whoop_is_strength($w['sport'])], $whoop),
     ];
 }
 
@@ -526,5 +532,15 @@ function route_export(int $uid, string $m) {
         'checkins' => $t('SELECT date, expenditure, trend_kg, kcal, protein, carbs, fat FROM checkins WHERE user_id = ? ORDER BY date'),
         'whoop_daily' => $t('SELECT * FROM whoop_daily WHERE user_id = ? ORDER BY date'),
         'whoop_workouts' => $t('SELECT * FROM whoop_workouts WHERE user_id = ? ORDER BY date'),
+        'meal_plans' => array_map('plan_out', $t('SELECT * FROM meal_plans WHERE user_id = ? ORDER BY position, id')),
+        'cardio' => $t('SELECT date, start_time, activity, duration_s, distance_m, avg_hr, max_hr, elevation_m, effort, kcal, reps, notes, whoop_id FROM cardio WHERE user_id = ? ORDER BY date'),
+        'medications_and_supplements' => $t('SELECT id, name, dose, kind, time_of_day, supply, active FROM health_items WHERE user_id = ? ORDER BY position, id'),
+        'doses_taken' => $t('SELECT item_id, date, taken_at FROM health_doses WHERE user_id = ? ORDER BY date'),
+        'lab_results' => $t('SELECT date, marker, value, unit, ref_low, ref_high, note FROM labs WHERE user_id = ? ORDER BY date, marker'),
+        'blood_sugar' => $t('SELECT date, time, mg_dl, context, note FROM glucose WHERE user_id = ? ORDER BY date, time'),
+        'measurements' => $t('SELECT date, kind, value, value2, note FROM measurements WHERE user_id = ? ORDER BY date'),
+        'habits' => $t('SELECT id, name, slot, kind, target, active FROM habits WHERE user_id = ? ORDER BY position, id'),
+        'habit_logs' => $t('SELECT habit_id, date, done, value FROM habit_logs WHERE user_id = ? ORDER BY date'),
+        'journal' => array_map('journal_out', $t('SELECT * FROM journal WHERE user_id = ? ORDER BY date')),
     ];
 }

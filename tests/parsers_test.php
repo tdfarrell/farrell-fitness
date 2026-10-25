@@ -66,6 +66,7 @@ check($o && $o['source'] === 'off' && $o['kcal'] == 59 && $o['brand'] === 'Sampl
 check($o['portions'][0]['grams'] == 170 && $o['sodium'] == 36.0, 'OFF: serving + sodium mg');
 $id = save_food(1, $o);
 check(barcode_lookup(1, '0041196910759')['id'] === $id, 'Barcode: saved food found locally next time');
+check(barcode_lookup(1, '041196910759')['id'] === $id, 'Barcode: 12-digit UPC finds the 13-digit EAN');
 
 /* ---------- WHOOP ---------- */
 check(whoop_local_date('2026-10-20T03:30:00.000Z', '-04:00') === '2026-10-19', 'WHOOP: local date honors timezone offset');
@@ -84,7 +85,7 @@ $GLOBALS['ff_http_mock'] = function ($m, $url, $headers, $body) use (&$calls) {
     parse_str(parse_url($url, PHP_URL_QUERY) ?? '', $q);
     if (str_contains($url, '/v2/cycle')) {
         if (empty($q['nextToken'])) return [200, ['records' => [['id' => 93845, 'start' => '2026-10-19T10:50:00.000Z', 'end' => '2026-10-20T10:30:00.000Z', 'timezone_offset' => '-04:00', 'score_state' => 'SCORED',
-            'score' => ['strain' => 11.37, 'kilojoule' => 12552.0, 'average_heart_rate' => 68, 'max_heart_rate' => 161]]], 'next_token' => 'page2']];
+            'score' => ['strain' => 11.37, 'kilojoule' => 12552.0, 'average_heart_rate' => 68, 'max_heart_rate' => 161], 'step_count' => 8423]], 'next_token' => 'page2']];
         return [200, ['records' => [['id' => 93846, 'start' => '2026-10-20T10:30:00.000Z', 'end' => null, 'timezone_offset' => '-04:00', 'score_state' => 'PENDING_SCORE']], 'next_token' => null]];
     }
     if (str_contains($url, '/v2/recovery')) return [200, ['records' => [['cycle_id' => 93845, 'sleep_id' => 'abc', 'created_at' => '2026-10-19T11:00:00.000Z', 'score_state' => 'SCORED',
@@ -96,7 +97,10 @@ $GLOBALS['ff_http_mock'] = function ($m, $url, $headers, $body) use (&$calls) {
            'respiratory_rate' => 15.2, 'sleep_performance_percentage' => 92, 'sleep_consistency_percentage' => 81, 'sleep_efficiency_percentage' => 90.6]],
         ['id' => 'nap1', 'start' => '2026-10-19T18:00:00.000Z', 'end' => '2026-10-19T18:30:00.000Z', 'timezone_offset' => '-04:00', 'nap' => true, 'score_state' => 'SCORED', 'score' => []]]]];
     if (str_contains($url, '/v2/activity/workout')) return [200, ['records' => [['id' => 'w-uuid-1', 'start' => '2026-10-19T21:00:00.000Z', 'end' => '2026-10-19T21:52:00.000Z', 'timezone_offset' => '-04:00',
-        'sport_name' => 'weightlifting', 'score_state' => 'SCORED', 'score' => ['strain' => 9.8, 'kilojoule' => 1674.0, 'average_heart_rate' => 118, 'max_heart_rate' => 152]]]]];
+        'sport_name' => 'weightlifting', 'score_state' => 'SCORED', 'score' => ['strain' => 9.8, 'kilojoule' => 1674.0, 'average_heart_rate' => 118, 'max_heart_rate' => 152]],
+        ['id' => 'w-uuid-2', 'start' => '2026-10-19T11:00:00.000Z', 'end' => '2026-10-19T11:37:00.000Z', 'timezone_offset' => '-04:00', 'sport_name' => 'running', 'score_state' => 'SCORED',
+         'score' => ['strain' => 12.6, 'kilojoule' => 2008.0, 'average_heart_rate' => 152, 'max_heart_rate' => 171, 'percent_recorded' => 100, 'distance_meter' => 6598.2, 'altitude_gain_meter' => 41.5,
+           'zone_durations' => ['zone_zero_milli' => 0, 'zone_one_milli' => 120000, 'zone_two_milli' => 360000, 'zone_three_milli' => 840000, 'zone_four_milli' => 720000, 'zone_five_milli' => 180000]]]]]];
     return [404, []];
 };
 $res = whoop_sync(1, 7);
@@ -111,6 +115,10 @@ check(abs($row['sleep_deep'] - 1.63) < 0.01, 'WHOOP: deep sleep stage');
 check(q_val('SELECT COUNT(*) FROM whoop_daily WHERE user_id = 1') == 2, 'WHOOP: unscored cycle stored without blanking data');
 $w = q_one('SELECT * FROM whoop_workouts WHERE whoop_id = ?', ['w-uuid-1']);
 check($w && $w['sport'] === 'Weightlifting' && $w['kcal'] == 400 && $w['date'] === '2026-10-19', 'WHOOP: workout mapped');
+check($row['step_count'] == 8423, 'WHOOP: daily step count from the cycle');
+$r = q_one('SELECT * FROM whoop_workouts WHERE whoop_id = ?', ['w-uuid-2']);
+check($r && $r['distance_m'] == 6598.2 && $r['altitude_gain_m'] == 41.5 && json_decode($r['zones'], true) === [0, 120, 360, 840, 720, 180], 'WHOOP: run distance, elevation and heart rate zones');
+check($w['distance_m'] === null && $w['zones'] === null, 'WHOOP: lifting has no distance or zones');
 
 echo $fails ? "\n$fails FAILED\n" : "\nAll parser tests passed\n";
 exit($fails ? 1 : 0);

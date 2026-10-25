@@ -9,6 +9,8 @@ const PRECACHE = [
   'assets/js/components.js', 'assets/js/tdee.js', 'assets/js/pwa.js',
   'assets/js/views/today.js', 'assets/js/views/food.js', 'assets/js/views/weight.js', 'assets/js/views/train.js',
   'assets/js/views/progress.js', 'assets/js/views/whoop.js', 'assets/js/views/settings.js',
+  'assets/js/views/plans.js', 'assets/js/views/cardio.js', 'assets/js/views/health.js', 'assets/js/views/habits.js',
+  'assets/js/views/journal.js', 'assets/js/views/more.js', 'assets/js/quickadd.js',
   'icons/icon-v2.svg', 'icons/logo-mark.svg', 'icons/favicon-v2-32.png', 'icons/icon-v2-192.png', 'icons/apple-touch-icon-v2.png',
   'assets/fonts/barlow-latin-400-normal.woff2', 'assets/fonts/barlow-latin-500-normal.woff2', 'assets/fonts/barlow-latin-600-normal.woff2',
   'assets/fonts/barlow-condensed-latin-500-normal.woff2', 'assets/fonts/barlow-condensed-latin-600-normal.woff2', 'assets/fonts/barlow-condensed-latin-700-normal.woff2',
