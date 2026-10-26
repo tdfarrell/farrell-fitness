@@ -781,3 +781,4 @@ button.nut-row:hover .title { color: var(--primary); }
 .temp-pw { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline; background: var(--ground); border-radius: 12px; padding: 12px 14px; }
 .mono { font: 600 16px ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.02em; overflow-wrap: anywhere; }
 .btn.danger-fill { background: var(--red); border-color: var(--red); color: #fff; }
+.sub-h { margin: 6px 0 -4px; font: 600 15px var(--body); }

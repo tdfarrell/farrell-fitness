@@ -20,7 +20,7 @@ A personal nutrition, training and health tracker that installs on your phone as
 - **Reminders.** Push notifications for weighing in, each medication dose, finishing your food log, progress photos, the weekly report and check-ins. They skip themselves when the thing is already done.
 - **Smart scale sync.** Scales that write to Apple Health (Eufy, Withings, Renpho and others) can send weigh-ins here through an iPhone Shortcut.
 - **Backups.** The database is backed up every night; 30 days and 6 monthly copies are kept.
-- **More than one person.** Admins add people from **More > Users**. Each person has their own private data; admins can reset passwords, pause or delete accounts but can't see anyone else's logs.
+- **More than one person.** Admins add people from **More > Users**. Each person has their own private data and can change their own name, username and password in Settings; admins can reset passwords, pause or delete accounts but can't see anyone else's logs.
 - **App behavior.** Installable PWA, works offline (changes made offline sync later), light and dark themes, drag-and-drop reordering everywhere, stays signed in for 180 days.
 
 ## Setting it up on Bluehost

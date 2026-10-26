@@ -415,6 +415,19 @@ check(!q_val('SELECT COUNT(*) FROM drinks WHERE user_id = ?', [$sarah['id']]) &&
 [$st] = api('drinks', null, ['date' => $today]);
 check($st === 200, 'the admin is still signed in');
 
+/* your own name and username */
+[$st] = api('auth/account', ['username' => 'timf', 'current' => 'wrong-password']);
+check($st === 400, 'changing your username needs your current password');
+db_insert('users', ['username' => 'taken', 'password_hash' => 'x', 'created_at' => time()]);
+[$st] = api('auth/account', ['username' => 'Taken', 'current' => 'testpass1234']);
+check($st === 400, "you can't take someone else's username");
+[$st, $r] = api('auth/account', ['username' => 'TimF', 'name' => 'Tim Farrell', 'current' => 'testpass1234']);
+check($st === 200 && $r['user']['username'] === 'timf' && $r['user']['name'] === 'Tim Farrell', 'change your own username and name');
+[$st] = api('auth/login', ['username' => 'timf', 'password' => 'testpass1234'], [], ['jar' => "$tmp.cookies3"]);
+check($st === 200, 'sign in with the new username');
+api('auth/account', ['username' => 'tim', 'current' => 'testpass1234']);
+q("DELETE FROM users WHERE username = 'taken'");
+
 /* export */
 [$st, $r] = api('export');
 check($st === 200 && count($r['journal']) === 1 && count($r['lab_results']) === 2 && count($r['meal_plans']) === 1 && isset($r['habits'], $r['blood_sugar'], $r['measurements'], $r['cardio']), 'export includes the new data');

@@ -78,6 +78,21 @@ function route_auth_password(int $uid, string $m) {
     return ['ok' => true];
 }
 
+/** Change your own username and display name. Needs your current password. */
+function route_auth_account(int $uid, string $m) {
+    $row = q_one('SELECT * FROM users WHERE id = ?', [$uid]);
+    if (!password_verify((string) param('current', ''), $row['password_hash'])) fail(400, 'Current password is incorrect');
+    $data = [];
+    if (param('username') !== null) {
+        $u = clean_username(param('username'));
+        if (q_val('SELECT id FROM users WHERE LOWER(username) = ? AND id <> ?', [$u, $uid])) fail(400, 'That username is taken');
+        $data['username'] = $u;
+    }
+    if (param('name') !== null) $data['display_name'] = mb_substr(trim((string) param('name')), 0, 80) ?: null;
+    if ($data) db_update('users', $data, ['id' => $uid]);
+    return ['user' => auth_user_out(session_user($uid))];
+}
+
 /** Saves a new password, signs out every other device and keeps this one signed in. */
 function set_own_password(int $uid, string $new): void {
     if (strlen($new) < 10) fail(400, 'New password must be at least 10 characters');

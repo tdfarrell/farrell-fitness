@@ -145,6 +145,22 @@ export async function render(root, params = []) {
       field('New password', inp('pw-new', '', { type: 'password', autocomplete: 'new-password', minlength: 10 }))),
     h('button', { class: 'btn sm', type: 'submit', style: { alignSelf: 'flex-start' } }, 'Change password'));
 
+  // Your own sign-in name and username. Anyone signed in can change theirs; it needs the current password.
+  const acct = h('form', { class: 'stack', 'aria-label': 'Name and username', onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      const r = await post('auth/account', { name: acct.querySelector('#ac-name').value, username: acct.querySelector('#ac-user').value, current: acct.querySelector('#ac-cur').value });
+      state.user = { ...state.user, ...r.user };
+      toast(`Saved. You sign in as ${r.user.username} now.`);
+      render(root);
+    } catch (err) { toast(err.message, 'error'); }
+  } },
+    h('div', { class: 'form-grid' },
+      field('Name', inp('ac-name', state.user?.name || '', { autocomplete: 'name' })),
+      field('Username', inp('ac-user', state.user?.username || '', { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false' }), '3 to 32 letters, numbers, dots, dashes or underscores'),
+      field('Current password', inp('ac-cur', '', { type: 'password', autocomplete: 'current-password', required: true }))),
+    h('button', { class: 'btn sm', type: 'submit', style: { alignSelf: 'flex-start' } }, 'Save name and username'));
+
   const install = installPrompt();
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -173,6 +189,9 @@ export async function render(root, params = []) {
           : h('p', { class: 'note' }, isIOS ? 'In Safari, tap Share, then Add to Home Screen.' : 'Use your browser menu and choose Install app or Add to Home screen.')) : null,
       h('section', { class: 'card', 'aria-label': 'Account' },
         h('h2', null, 'Account and data'),
+        h('h3', { class: 'sub-h' }, 'Name and username'),
+        acct,
+        h('h3', { class: 'sub-h' }, 'Password'),
         pw,
         h('div', { class: 'row' },
           h('button', { class: 'btn sm', onclick: async () => {
