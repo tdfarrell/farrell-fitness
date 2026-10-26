@@ -199,7 +199,7 @@ p { margin: 0; }
 .icon-btn svg { width: 22px; height: 22px; }
 
 .field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); font-weight: 500; min-width: 0; }
-.input, .field input, .field select, .field textarea, select.input {
+.input, .field input:not([type="radio"]):not([type="checkbox"]):not([type="range"]), .field select, .field textarea, select.input {
   height: 46px; border-radius: 10px; border: 1px solid var(--field); padding: 0 12px; background: var(--surface);
   font-size: 16px; font-weight: 500; color: var(--ink); width: 100%; min-width: 0;
 }
@@ -968,3 +968,8 @@ button.nut-row:hover .title { color: var(--primary); }
 .run-done { margin: auto 0; display: flex; flex-direction: column; gap: 14px; text-align: center; }
 .run-done h1 { font: 700 40px/1 var(--display); }
 @media (min-width: 1024px) { .stretch-run { left: 50%; transform: translateX(-50%); width: 480px; border-radius: 0; box-shadow: 0 0 0 100vmax rgba(0, 12, 30, 0.6); } }
+/* iPhone Safari gives date and time inputs a fixed native width that ignores width: 100%,
+   so in two-column rows they overlap. Drop the native styling so they size like other fields. */
+input[type="date"], input[type="time"] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; box-sizing: border-box; }
+input[type="date"]::-webkit-date-and-time-value, input[type="time"]::-webkit-date-and-time-value { text-align: left; }
+.grid-2 > *, .form-grid > * { min-width: 0; }
