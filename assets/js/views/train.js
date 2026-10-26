@@ -34,7 +34,9 @@ export async function render(root, params) {
     return renderCardio(root);
   }
   if (a === 'progress') return renderProgress(root);
-  if (a === 'new') return startWorkout(root, new URLSearchParams(location.hash.split('?')[1] || '').get('routine'));
+  if (a === 'stretch') return (await import('./stretch.js')).render(root, params.slice(1));
+  if (a === 'schedule') return (await import('./schedule.js')).render(root);
+  if (a === 'new') { const q = new URLSearchParams(location.hash.split('?')[1] || ''); return startWorkout(root, q.get('routine'), { noWarm: q.has('nowarm'), cooldown: q.get('cooldown') }); }
   if (a === 'active') return renderActive(root);
   if (a === 'exercise' && b) return renderExercise(root, +b);
   if (a && /^\d+$/.test(a)) return renderSaved(root, +a);
@@ -286,7 +288,24 @@ function pickExercise(onPick) {
 
 /* ---------- active workout ---------- */
 
-async function startWorkout(root, routineId) {
+/** Stretching routines attached to a strength routine (or a cardio activity) as a warm-up or cool-down. */
+export async function attachedStretch(match, when) {
+  try {
+    const st = await get('stretch');
+    return st.routines.find(r => r.attach.some(a => a.when === when && (match.routine ? a.type === 'routine' && a.id === +match.routine : a.type === 'cardio' && a.activity === match.activity))) || null;
+  } catch { return null; }
+}
+
+async function startWorkout(root, routineId, { noWarm = false, cooldown = null } = {}) {
+  // A warm-up attached to this routine is offered first.
+  if (routineId && !noWarm && !readActive()) {
+    const warm = await attachedStretch({ routine: routineId }, 'before');
+    if (warm) {
+      const go = await confirmSheet(`Warm up first?`, `${warm.name}, about ${Math.max(1, Math.round(warm.est_s / 60))} min, is your warm-up for this routine.`, 'Start warm-up', 'Skip it');
+      if (go) { location.hash = `#/train/stretch/run/${warm.id}?next=${encodeURIComponent(`#/train/new?routine=${routineId}&nowarm=1`)}`; return; }
+    }
+  }
+  if (routineId && !cooldown) cooldown = (await attachedStretch({ routine: routineId }, 'after'))?.id || null;
   const existing = readActive();
   if (existing) {
     if (!(await confirmSheet('Workout in progress', `You have ${existing.name} in progress. Discard it and start a new one?`, 'Discard and start'))) {
@@ -311,7 +330,7 @@ async function startWorkout(root, routineId) {
     const n = Math.max(3, working.length);
     return { exercise_id: id, name: byId[id].name, sets: Array.from({ length: n }, () => ({ weight: '', reps: '', warmup: false, done: false })) };
   }));
-  writeActive({ name, date: todayISO(), started_at: Date.now(), exercises: entries });
+  writeActive({ name, date: todayISO(), started_at: Date.now(), exercises: entries, cooldown_id: cooldown ? +cooldown : null });
   location.hash = '#/train/active';
 }
 
@@ -524,7 +543,9 @@ function renderActive(root) {
       const r = await post('workouts/save', { id: w.id, date: w.date, name: w.name, notes: w.notes || null, duration_min: w.duration_min || minutes(), effort: effort || null, sets });
       writeActive(null); histCache.clear(); stopRest();
       toast(r.queued ? 'Workout saved offline. It will sync when you reconnect.' : 'Workout saved');
-      location.hash = r.queued ? '#/train' : `#/train/${r.workout.id}`;
+      const after = r.queued ? '#/train' : `#/train/${r.workout.id}`;
+      // A cool-down attached to the routine (or the scheduled session) comes next.
+      location.hash = w.cooldown_id && !r.queued ? `#/train/stretch/run/${w.cooldown_id}?next=${encodeURIComponent(after)}` : after;
     } catch (e) { toast(e.message, 'error'); }
   };
   const finish = async () => {

@@ -7,6 +7,7 @@ import { openWeightSheet } from './weight.js';
 import { openAddFood } from './food.js';
 import { habitRow } from './habits.js';
 import { drinksCard } from './drinks.js';
+import { startHref, occTitle, clock } from './schedule.js';
 
 export async function render(root) {
   await loadSummary();
@@ -19,12 +20,13 @@ export async function render(root) {
   const recent7 = days.slice(-7).map(d => d.whoop?.recovery).filter(v => v != null);
   const avgRec = recent7.length ? recent7.reduce((a, b) => a + b, 0) / recent7.length : null;
 
-  const [workoutsRes, hb, meds, jr, drinks] = await Promise.all([
+  const [workoutsRes, hb, meds, jr, drinks, plan] = await Promise.all([
     get('workouts', { from: days[Math.max(0, days.length - 14)].date, to: today }).catch(() => ({ workouts: [], whoop: [] })),
     get('habits', { date: today, days: 7 }).catch(() => null),
     get('health/items', { date: today }).catch(() => null),
     get('journal', { date: today }).catch(() => null),
     settings.drinks?.show?.length ? get('drinks', { date: today }).catch(() => null) : null,
+    settings.schedule?.show_today !== false ? get('schedule', { from: today, to: today }).catch(() => null) : null,
   ]);
   const s28 = model.series.slice(-28);
   const s56 = model.series.slice(-56);
@@ -188,6 +190,15 @@ export async function render(root) {
         h('span', { class: 'small muted' }, jr?.entry ? 'Today’s entry is saved. Add to it?' : 'How did today go?'))),
     icon('right', 20));
 
+  // Today's scheduled training, with Start (or a tick once it's done).
+  const planned = plan?.occurrences || [];
+  const planCard = planned.length ? h('section', { class: 'card', 'aria-label': "Today's training", style: { gap: 0 } },
+    h('div', { class: 'card-head', style: { alignItems: 'center' } }, h('h2', null, "Today's training"), h('a', { class: 'small', href: '#/train' }, 'Train')),
+    h('div', { class: 'list' }, planned.map(o => h('div', { class: 'list-row' },
+      h('span', { class: `act-ic sm k-${o.kind === 'strength' ? 'lift' : o.kind === 'cardio' ? 'cardio' : 'stretch'}`, 'aria-hidden': 'true' }, icon(o.kind === 'strength' ? 'train' : o.kind === 'cardio' ? 'run' : 'stretch')),
+      h('div', { class: 'main' }, h('span', { class: 'title' }, occTitle(o)), h('span', { class: 'small muted' }, [o.time ? clock(o.time) : null, o.done ? 'Done' : null].filter(Boolean).join(', ') || 'Today')),
+      o.done ? h('span', { class: 'done-tick', 'aria-label': 'Done' }, icon('check', 18)) : h('a', { class: 'btn sm', href: startHref(o) }, 'Start'))))) : null;
+
   const checkinLink = h('a', { class: 'linkcard', href: '#/progress' },
     h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
       h('span', { style: { fontWeight: 600 } }, checkin.due ? 'Your weekly check-in is ready' : settings.program === 'manual' ? 'Progress and check-ins' : `Weekly check-in is ${relDay(checkin.next) === 'Today' ? 'today' : weekdayName(checkin.next)}`),
@@ -200,6 +211,7 @@ export async function render(root) {
       intro,
       checkin.due ? checkinLink : null,
       h('div', { class: 'row' }, kcalCard, h('div', { class: 'grow-2', style: { display: 'flex' } }, whoopCard(w, summary.whoop, avgRec))),
+      planCard,
       habitsCard || medsCard ? h('div', { class: 'row' }, habitsCard, medsCard) : null,
       drinksEl ? h('div', { class: 'row' }, drinksEl) : null,
       smallCards,

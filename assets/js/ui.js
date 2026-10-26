@@ -45,6 +45,7 @@ const ICONS = {
   muted: '<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
   play: '<path d="M7 5l12 7-12 7z" fill="currentColor"/>',
   ramp: '<path d="M4 18l5-5 4 3 7-8"/>',
+  stretch: '<circle cx="12" cy="4.5" r="1.8"/><path d="M12 7v6l-4 7M12 13l4 7M5 9l7-1 7 1"/>',
   sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
   right: '<path d="M9 6l6 6-6 6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
@@ -163,6 +164,8 @@ export function openSheet({ title, body, tall = false, onClose, label }) {
   const opener = document.activeElement;
   const titleEl = h('h2', { id: 'sheet-' + Math.random().toString(36).slice(2) }, title);
   const bodyEl = h('div', { class: 'sheet-body' });
+  // Sheets build their bodies with conditional parts; skip the empty ones instead of printing "null".
+  bodyEl.append = (...xs) => Element.prototype.append.apply(bodyEl, xs.filter(x => x != null && x !== false));
   const sheet = h('section', { class: 'sheet' + (tall ? ' tall' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleEl.id, 'aria-label': label },
     h('div', { class: 'grab', 'aria-hidden': 'true' }),
     h('div', { class: 'sheet-head' }, titleEl, h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: close }, icon('close'))),
@@ -192,7 +195,7 @@ export function toast(msg, kind = '') {
   setTimeout(() => t.remove(), kind === 'error' ? 5000 : 2600);
 }
 
-export function confirmSheet(title, message, actionLabel = 'Delete') {
+export function confirmSheet(title, message, actionLabel = 'Delete', cancelLabel = 'Cancel') {
   return new Promise((resolve) => {
     let answered = false;
     const s = openSheet({
@@ -201,7 +204,7 @@ export function confirmSheet(title, message, actionLabel = 'Delete') {
       body: h('div', { class: 'stack' },
         h('p', { class: 'note' }, message),
         h('div', { class: 'grid-2' },
-          h('button', { class: 'btn', onclick: () => { answered = true; s.close(); resolve(false); } }, 'Cancel'),
+          h('button', { class: 'btn', onclick: () => { answered = true; s.close(); resolve(false); } }, cancelLabel),
           h('button', { class: 'btn primary', onclick: () => { answered = true; s.close(); resolve(true); } }, actionLabel))),
     });
   });

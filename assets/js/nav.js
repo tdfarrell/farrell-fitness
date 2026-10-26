@@ -8,7 +8,7 @@ const MAX = 30;
 // Tab front pages: no back button, and reaching one starts a fresh history.
 const ROOTS = new Set(['today', 'food', 'train', 'more']);
 // Screens that never show a back button (the live workout keeps Finish and Discard).
-const NO_BACK = new Set(['train/active', 'train/new', 'stretch/run']);
+const NO_BACK = new Set(['train/active', 'train/new', 'train/stretch/run']);
 
 let cur = { name: 'today', params: [], hash: '#/today' };
 
@@ -90,7 +90,7 @@ export function labelFor(hash) {
 /** Where the back button goes from the current screen, or null for none. */
 export function backTarget() {
   const { name, params, hash } = cur;
-  if (isRoot(name, params) || NO_BACK.has(`${name}/${params[0] || ''}`) || name === 'login') return null;
+  if (isRoot(name, params) || NO_BACK.has(`${name}/${params[0] || ''}`) || NO_BACK.has(`${name}/${params[0] || ''}/${params[1] || ''}`) || name === 'login') return null;
   const stack = load();
   const i = stack.lastIndexOf(hash);
   if (i > 0) return stack[i - 1];

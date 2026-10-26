@@ -6,22 +6,23 @@ A personal nutrition, training and health tracker that installs on your phone as
 
 ## What's in it
 
-- **Food.** An overview with calorie and macro trends, a month calendar colored by how each day landed against its target, recent days and your most-logged foods. A day-by-day diary with USDA FoodData Central search, barcode scanning (Open Food Facts, then USDA), your own foods and recipes, quick add, copy meals and day status (fasted, left out). Meal plans that check a day against your targets without logging it.
+- **Food.** An overview with what's left today for each macro (fiber included), a trends chart for calories, protein, carbs, fat or fiber, drinks, a month calendar colored by how each day landed against its target, recent days and your most-logged foods. A day-by-day diary with USDA FoodData Central search, barcode scanning (Open Food Facts, then USDA), your own foods and recipes, quick add, copy meals and day status (fasted, left out). Meal plans that check a day against your targets without logging it.
 - **Nutrients and Fill my macros.** Vitamins, minerals, fiber, sodium, saturated fat and sugar for each day or a 7-day average, against standard targets for your age and sex or your own. "Fill my macros" suggests one or two of your own foods, in sensible portions, that cover what's left today.
-- **Drinks.** Water, caffeine and alcohol counters on Today, with a caffeine cut-off time and an option to add drink calories to the food log. Insights compare drinks with your sleep, HRV and recovery.
+- **Drinks.** Water, caffeine and alcohol counters on Today, the Food overview and the diary (caffeine and alcohol fold up under water), with a caffeine cut-off time and an option to add drink calories to the food log. Insights compare drinks with your sleep, HRV and recovery.
 - **Diet phases.** Line up fat loss, diet breaks, a reverse diet, lean gains and maintenance. Each weekly check-in sets targets from the phase you're in.
 - **Weight and goal projection.** Daily weigh-ins with a smoothed trend, and a projection of when you'll reach a goal weight at different rates, with the calories each rate means.
 - **Adaptive expenditure and weekly check-ins.** The last three weeks of intake are compared with how fast your weight is changing (about 7,700 kcal per kg). On your check-in day, new targets are proposed from the estimate, your goal rate and macro preferences.
-- **Training.** An overview with your next routine, this week, 12-week trends, a calendar and new records. Routines, a set-by-set logger with last-time values, warm-ups and a rest timer, cardio with pace and heart rate zones, and records for every lift and activity.
+- **Training.** An overview with your next scheduled workout, this week planned against done, what's coming up, 12-week trends, a calendar and new records. Routines with planned sets and warm-up ramps, exercises by equipment and type (only lifts count toward volume), a set-by-set logger with last-time values, effort 1 to 10 per set and per session, and a rest timer that alarms (a tone with the app open, a notification on a locked phone). Cardio by where you did it (treadmill, track, road, stationary bike) with pace and heart rate zones, and records for every lift and activity.
+- **Stretching and schedule.** A stretch library, stretching routines that can be a warm-up or cool-down for a routine or a cardio activity, and a guided timer that switches sides. A weekly schedule for strength, cardio and stretching (every N weeks, every N days or once), with skips, moves and reminders.
 - **Body.** Eleven tape measurements, body fat from a tape estimate (US Navy method), a smart scale or entered by hand, lean and fat mass, and progress photos with a camera that shows a faint outline of your last photo, plus side-by-side and slider comparisons.
 - **Health.** Medications and supplements on any schedule (daily, twice or three times a day, weekly, every few days, as needed), with a dose checklist, supply countdown and refill warnings. VO2 max, WHOOP vitals, blood pressure, labs against their reference ranges, and blood sugar.
-- **Habits and journal.** A daily checklist that ticks some habits off on its own (steps, sleep, weigh-in, meds, food, journal) and a journal that saves a snapshot of each day.
+- **Habits and journal.** A daily checklist that ticks some habits off on its own (steps, sleep, weigh-in, meds, food, journal, water, stretching) and a journal that saves a snapshot of each day.
 - **Insights and weekly report.** Patterns across sleep, food, training, recovery and mood, each rated by how much data supports it. A weekly report every Sunday.
-- **Reminders.** Push notifications for weighing in, each medication dose, finishing your food log, progress photos, the weekly report and check-ins. They skip themselves when the thing is already done.
+- **Reminders.** Push notifications for weighing in, each medication dose, finishing your food log, progress photos, the weekly report, check-ins and scheduled workouts. They skip themselves when the thing is already done.
 - **Smart scale sync.** Scales that write to Apple Health (Eufy, Withings, Renpho and others) can send weigh-ins here through an iPhone Shortcut.
 - **Backups.** The database is backed up every night; 30 days and 6 monthly copies are kept.
 - **More than one person.** Admins add people from **More > Users**. Each person has their own private data and can change their own name, username and password in Settings; admins can reset passwords, pause or delete accounts but can't see anyone else's logs.
-- **App behavior.** Installable PWA, works offline (changes made offline sync later), light and dark themes, drag-and-drop reordering everywhere, stays signed in for 180 days.
+- **App behavior.** Installable PWA, works offline (changes made offline sync later), light and dark themes, a back button on every screen (or swipe from the left edge), drag-and-drop reordering everywhere, stays signed in for 180 days.
 
 ## Setting it up on Bluehost
 
@@ -93,7 +94,7 @@ php /home/CPANELUSER/public_html/fit/cron/tick.php
 
 ### 7. Turn on reminders
 
-Open the app **from the Home Screen icon** (on iPhone, notifications only work in the installed app, iOS 16.4 or later), go to **More > Reminders and sync**, and tap **Turn on reminders**. Allow notifications when asked, then tap **Send a test**. Turn reminders on separately on each device you want them on. Each reminder's time can be changed there; medication reminders use the dose times in each item's schedule.
+Open the app **from the Home Screen icon** (on iPhone, notifications only work in the installed app, iOS 16.4 or later), go to **More > Reminders and sync**, and tap **Turn on reminders**. Allow notifications when asked, then tap **Send a test**. Turn reminders on separately on each device you want them on. Each reminder's time can be changed there; medication reminders use the dose times in each item's schedule. The rest timer's alert on a locked phone and reminders before scheduled workouts use the same notifications, so they need reminders on for that device too (Settings > Rest timer has the alarm's own options). The rest alert is sent by the server when the rest ends, so the host has to let a request keep running for the length of a rest. If it never arrives on a locked phone, the host is probably ending long requests early.
 
 ### 8. Add other people (optional)
 
@@ -151,9 +152,11 @@ assets/js/stats.js                         statistics and calendar helpers for I
 assets/js/sortable.js                      drag to reorder (touch, mouse and keyboard)
 assets/js/push.js                          turning reminders on and off on a device
 assets/js/nutrients.js, fill.js, phases.js nutrient targets, Fill my macros, diet phases
+assets/js/nav.js                           back button, in-app history and edge swipe
+assets/js/restalarm.js                     rest timer tones and the locked-phone alarm
 assets/js/views/                           one file per screen
 api/index.php                              JSON API router (/api/?r=route)
-api/lib/                                   database, auth, users, foods, nutrients and drinks, WHOOP, health, photos, push, reminders, backups, scale sync
+api/lib/                                   database, auth, users, foods, nutrients and drinks, WHOOP, health, photos, push, reminders, rest alarm, stretching, schedule, backups, scale sync
 install.php                                one-time setup
 cron/tick.php                              the scheduled task, for cPanel cron
 .github/workflows/deploy.yml               test, then FTPS deploy on push to main

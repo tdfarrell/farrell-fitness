@@ -13,6 +13,7 @@ function default_reminders(): array {
         'photos' => ['on' => true, 'weekday' => 0, 'time' => '08:00'],
         'report' => ['on' => true, 'weekday' => 0, 'time' => '18:00'],
         'checkin' => ['on' => false, 'time' => '08:00'],
+        'schedule' => ['on' => true],    // before scheduled workouts, at each session's own reminder time
     ];
 }
 
@@ -121,6 +122,10 @@ function run_reminders_for(int $uid, int $now): array {
         $next = checkin_next($uid, $s);
         if ($next !== null && $next <= $date) $send('checkin', ['title' => 'Check-in ready', 'body' => 'Your weekly check-in has new targets to review.', 'url' => '#/progress']);
         else reminder_mark($uid, 'checkin', $date);
+    }
+
+    if ($r['schedule']['on'] && function_exists('schedule_reminders')) {
+        schedule_reminders($uid, $now, $send, fn($key) => reminder_mark($uid, $key, $date));
     }
     return $sent;
 }

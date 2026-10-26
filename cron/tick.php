@@ -4,7 +4,7 @@
 //   php /home/USERNAME/public_html/PATH/cron/tick.php
 // or call api/?r=cron/tick&key=CRON_SECRET with curl.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
-foreach (['db', 'util', 'auth', 'settings', 'foods', 'whoop', 'plans', 'cardio', 'health', 'habits', 'photos', 'backup', 'push', 'reminders', 'rest', 'sync', 'report'] as $lib) {
+foreach (['db', 'util', 'auth', 'settings', 'foods', 'whoop', 'plans', 'cardio', 'health', 'habits', 'photos', 'backup', 'push', 'reminders', 'rest', 'stretch', 'schedule', 'sync', 'report'] as $lib) {
     require __DIR__ . "/../api/lib/$lib.php";
 }
 config();

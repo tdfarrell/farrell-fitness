@@ -32,6 +32,10 @@ function default_settings(): array {
             'notify' => true,            // push to this device when the phone is locked
         ],
         'intro_dismissed' => false,      // hide the Getting started card on Today
+        'schedule' => [
+            'show_today' => true,        // the day's scheduled sessions on Today
+            'remind_min' => 30,          // default reminder for new scheduled sessions (null: none)
+        ],
         'lift_days_goal' => 4,           // lifting sessions per week, for the Train overview
         'body_fat_source' => 'auto',     // auto | tape | scale | manual
         'reminders' => [],               // filled in from default_reminders()
@@ -96,6 +100,9 @@ function save_settings(int $uid, array $patch): array {
     $ra['notify'] = (bool) $ra['notify'];
     unset($ra);
     $s['intro_dismissed'] = (bool) $s['intro_dismissed'];
+    $s['schedule']['show_today'] = (bool) $s['schedule']['show_today'];
+    $rm = $s['schedule']['remind_min'];
+    $s['schedule']['remind_min'] = $rm === null || $rm === '' ? null : (int) max(0, min(1440, (int) $rm));
     $s['lift_days_goal'] = max(0, min(14, (int) $s['lift_days_goal']));
     $s['body_fat_source'] = in_array($s['body_fat_source'], ['auto', 'tape', 'scale', 'manual'], true) ? $s['body_fat_source'] : 'auto';
     $s['reminders'] = clean_reminders($s['reminders']);

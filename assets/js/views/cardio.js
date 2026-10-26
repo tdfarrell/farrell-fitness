@@ -49,10 +49,11 @@ export function fmtPace(activity, distM, durS) {
 const actIcon = (a) => icon(ICON[a] || 'pulse');
 
 export function trainSwitch(current) {
-  return h('nav', { class: 'segmented big four', 'aria-label': 'Training sections' },
+  return h('nav', { class: 'segmented big five', 'aria-label': 'Training sections' },
     h('a', { href: '#/train', 'aria-current': current === 'overview' ? 'page' : null }, 'Overview'),
     h('a', { href: '#/train/strength', 'aria-current': current === 'strength' ? 'page' : null }, 'Strength'),
     h('a', { href: '#/train/cardio', 'aria-current': current === 'cardio' ? 'page' : null }, 'Cardio'),
+    h('a', { href: '#/train/stretch', 'aria-current': current === 'stretch' ? 'page' : null }, 'Stretch'),
     h('a', { href: '#/train/progress', 'aria-current': current === 'progress' ? 'page' : null }, 'Progress'));
 }
 
@@ -145,6 +146,13 @@ export async function renderCardioForm(root, { id = null, whoopId = null } = {})
   let whoop = null;
   const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
   if (id) s = { ...s, ...(await get('cardio/get', { id })).session };
+  // From a scheduled session: its activity, where and day come in with the link.
+  const q = new URLSearchParams(location.hash.split('?')[1] || '');
+  if (!id && !whoopId) {
+    if (ACTIVITIES.includes(q.get('activity'))) s.activity = q.get('activity');
+    if (q.get('setting')) s.setting = q.get('setting');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(q.get('date') || '') && q.get('date') <= todayISO()) s.date = q.get('date');
+  }
   const near = (await get('cardio', { from })).sessions;
   if (whoopId) {
     whoop = near.find(x => x.whoop_id === whoopId);
@@ -291,6 +299,15 @@ export async function renderCardioForm(root, { id = null, whoopId = null } = {})
   dateIn.addEventListener('change', drawLink);
   drawLink();
 
+  // Stretching attached to this activity: the warm-up is offered here, the cool-down follows the save.
+  const { attachedStretch } = await import('./train.js');
+  const isNew = !s.id && !whoopId;
+  const warm = isNew && !q.has('nowarm') ? await attachedStretch({ activity }, 'before') : null;
+  const backHere = `#/train/cardio/new?${new URLSearchParams({ ...Object.fromEntries(q), activity, nowarm: '1' })}`;
+  const warmCard = warm ? h('a', { class: 'linkcard', href: `#/train/stretch/run/${warm.id}?next=${encodeURIComponent(backHere)}` },
+    h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, h('span', { style: { fontWeight: 600 } }, `Warm up first: ${warm.name}`),
+      h('span', { class: 'small', style: { color: 'var(--on-deep-muted)' } }, `About ${Math.max(1, Math.round(warm.est_s / 60))} min, guided`)),
+    h('span', { class: 'btn sm light' }, 'Start')) : null;
   const save = async () => {
     const dur = parseDur(durIn.value);
     if (durIn.value.trim() && !dur) { toast('Enter the time as h:mm:ss or mm:ss', 'error'); durIn.focus(); return; }
@@ -310,7 +327,8 @@ export async function renderCardioForm(root, { id = null, whoopId = null } = {})
     try {
       const r = await post('cardio/save', body);
       toast(r.queued ? 'Saved offline. It will sync when you reconnect.' : 'Session saved');
-      location.hash = '#/train/cardio';
+      const cool = isNew && !r.queued ? (q.get('cooldown') ? { id: +q.get('cooldown') } : await attachedStretch({ activity }, 'after')) : null;
+      location.hash = cool ? `#/train/stretch/run/${cool.id}?next=${encodeURIComponent('#/train/cardio')}` : '#/train/cardio';
     } catch (e) { toast(e.message, 'error'); }
   };
 
@@ -319,6 +337,7 @@ export async function renderCardioForm(root, { id = null, whoopId = null } = {})
       h('a', { class: 'btn sm ghost', href: '#/train/cardio' }, 'Cancel'),
       h('button', { class: 'btn sm primary', onclick: save }, 'Save')]),
     h('div', { class: 'stack', style: { maxWidth: '760px' } },
+      warmCard,
       h('section', { class: 'card', 'aria-label': 'Activity' }, h('h2', null, 'Activity'), actBox, whereField),
       h('section', { class: 'card', 'aria-label': 'Details' },
         h('div', { class: 'grid-2' }, fld('Date', dateIn), fld('Start time', timeIn)),

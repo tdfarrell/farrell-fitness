@@ -52,7 +52,8 @@ export async function render(root) {
       row('food', 'Finish logging food', `${fmtTime(r.food.time)}, if fewer than ${r.food.min_meals} meals are logged`, timeIn('food', r.food.time, 'Food reminder time')),
       row('photos', 'Progress photos', `${DAYS[r.photos.weekday]}s, ${fmtTime(r.photos.time)}`, h('span', { class: 'two' }, dayIn('photos', r.photos.weekday, 'Photo day'), timeIn('photos', r.photos.time, 'Photo time'))),
       row('report', 'Weekly report', `${DAYS[r.report.weekday]}s, ${fmtTime(r.report.time)}`, h('span', { class: 'two' }, dayIn('report', r.report.weekday, 'Report day'), timeIn('report', r.report.time, 'Report time'))),
-      row('checkin', 'Check-in ready', `Morning of your check-in day, ${fmtTime(r.checkin.time)}`, timeIn('checkin', r.checkin.time, 'Check-in reminder time'))),
+      row('checkin', 'Check-in ready', `Morning of your check-in day, ${fmtTime(r.checkin.time)}`, timeIn('checkin', r.checkin.time, 'Check-in reminder time')),
+      r.schedule ? row('schedule', 'Scheduled workouts', "Before each session, at the time set on it. Skipped once you've started", h('a', { class: 'small', href: '#/train/schedule' }, 'Schedule')) : null),
     h('p', { class: 'tiny muted' }, 'Reminders skip themselves when the thing is already done. They come from your server, so they reach every device you turned them on for.'),
     !st.scheduler_ok ? h('p', { class: 'banner' }, st.last_tick_at ? `The server's scheduled task last ran ${timeAgo(st.last_tick_at)}. Reminders and backups need it running every 15 minutes.`
       : 'Reminders and nightly backups need one scheduled task (cron job) on the server. The setup guide in the project has the line to add in cPanel.') : null);

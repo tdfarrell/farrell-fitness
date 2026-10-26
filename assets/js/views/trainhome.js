@@ -6,7 +6,8 @@ import { pageHead } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
 import { addDays } from '../tdee.js';
 import { mean, monthCells, monthName, addMonths, monthStart, weekStart } from '../stats.js';
-import { trainSwitch, fmtDist, fmtDur, fmtPace, toDist, distUnit } from './cardio.js';
+import { trainSwitch, fmtDist, fmtDur, fmtPace, toDist, distUnit, SETTING_NAME } from './cardio.js';
+import { loadSchedule, startHref, moveSheet, skipOcc, editSchedule, occTitle, whenText, clock, KIND_LABEL } from './schedule.js';
 
 let measure = 'volume';
 let month = null;
@@ -17,11 +18,20 @@ export async function render(root) {
   const today = todayISO();
   month ??= monthStart(today);
   const from = [addDays(today, -120), month].sort()[0];
-  const [data, stats, rt] = await Promise.all([
+  const ws0 = weekStart(today);
+  const schFrom = [month, ws0].sort()[0];
+  const monthEnd = addDays(addMonths(month, 1), -1);
+  const schTo = [monthEnd, addDays(today, 28)].sort()[1];
+  const [data, stats, rt, sch, st] = await Promise.all([
     get('insights/data', { from, to: today }),
     get('training/stats', { from: addDays(today, -84) }),
     get('routines'),
+    loadSchedule(schFrom, schTo).catch(() => ({ schedule: [], occurrences: [] })),
+    get('stretch').catch(() => ({ routines: [] })),
   ]);
+  const occs = sch.occurrences;
+  const stretchName = Object.fromEntries(st.routines.map(r => [r.id, r.name]));
+  const upcoming = occs.filter(o => !o.done && o.date >= today);
   const refresh = () => render(root);
   const byDay = data.days;
   const tday = summary.days[summary.days.length - 1];
@@ -35,7 +45,34 @@ export async function render(root) {
   const routines = rt.routines.map(r => ({ ...r, last: lastDone[r.name] || null }))
     .sort((a, b) => (a.last || '') < (b.last || '') ? -1 : (a.last || '') > (b.last || '') ? 1 : a.name.localeCompare(b.name));
   const next = routines[0];
-  const nextCard = next ? h('section', { class: 'card next-up', 'aria-label': 'Next up' },
+  const nextOcc = upcoming[0];
+  const schCtx = { routines: rt.routines, stretch: st.routines, onDone: refresh };
+  const occDesc = (o) => {
+    if (o.kind === 'strength') {
+      const r = rt.routines.find(x => x.id === o.ref_id);
+      return [r ? `${r.exercise_ids.length} exercises` : null, durations[o.title] ? `about ${fmt0(mean(durations[o.title]))} min` : null].filter(Boolean).join(', ');
+    }
+    if (o.kind === 'cardio') return o.setting ? SETTING_NAME[o.setting] : 'Cardio';
+    return 'Stretching';
+  };
+  const extras = (o) => [o.warmup_id && stretchName[o.warmup_id] ? `${stretchName[o.warmup_id]} first` : null, o.cooldown_id && stretchName[o.cooldown_id] ? `then ${stretchName[o.cooldown_id]}` : null].filter(Boolean).join(', ');
+  const nextCard = nextOcc ? h('section', { class: 'card next-up', 'aria-label': 'Next scheduled workout' },
+    h('div', { class: 'card-head', style: { alignItems: 'flex-start' } },
+      h('span', { class: 'eyebrow-orange' }, 'Next scheduled workout'),
+      h('span', { class: 'small on-deep-muted' }, whenText(nextOcc))),
+    h('div', { class: 'card-head', style: { alignItems: 'flex-start' } },
+      h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+        h('span', { class: 'num', style: { fontSize: '32px' } }, occTitle(nextOcc)),
+        h('span', { class: 'small on-deep-muted' }, [occDesc(nextOcc), extras(nextOcc)].filter(Boolean).join('. '))),
+      recovery != null ? h('a', { class: 'recovery-chip', href: '#/whoop', 'aria-label': `Recovery ${recovery} percent` },
+        h('span', { class: 'num', style: { fontSize: '30px', color: recovery >= 67 ? 'var(--deep-green)' : recoveryColor(recovery) } }, `${recovery}%`),
+        h('span', { class: 'tiny on-deep-muted' }, 'recovery')) : null),
+    recovery != null && recovery < 34 && nextOcc.date === today ? h('p', { class: 'small on-deep-muted' }, 'Recovery is low today. A lighter session, or moving this one, may suit you better.') : null,
+    h('div', { class: 'next-actions three' },
+      h('a', { class: 'btn kcal', href: startHref(nextOcc) }, 'Start'),
+      h('button', { class: 'btn outline-light', onclick: () => moveSheet(nextOcc, refresh) }, 'Move'),
+      h('button', { class: 'btn outline-light', onclick: () => skipOcc(nextOcc, refresh) }, 'Skip')))
+    : next ? h('section', { class: 'card next-up', 'aria-label': 'Next up' },
     h('div', { class: 'card-head', style: { alignItems: 'flex-start' } },
       h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
         h('span', { class: 'small on-deep-muted' }, routines.length > 1 ? 'Next in your rotation' : 'Your routine'),
@@ -66,15 +103,24 @@ export async function render(root) {
   const volChange = prevStats?.volume_kg ? (wkStats.volume_kg / prevStats.volume_kg - 1) * 100 : null;
   const goal = settings.lift_days_goal || 0;
   const dayIcon = { lift: 'train', cardio: 'run', both: 'train', rest: null };
+  const weekPlanned = occs.filter(o => o.date >= ws && o.date <= addDays(ws, 6));
   const weekCard = h('section', { class: 'card', 'aria-label': 'This week' },
-    h('div', { class: 'card-head' }, h('h2', null, 'This week'), h('span', { class: 'small muted' }, `${shortDate(ws).split(', ').slice(1).join(', ')} to ${shortDate(addDays(ws, 6)).split(', ').slice(1).join(', ')}`)),
+    h('div', { class: 'card-head' }, h('h2', null, 'This week'), h('span', { class: 'small muted' }, weekPlanned.length
+      ? `${weekPlanned.filter(o => o.done).length} of ${weekPlanned.length} planned done`
+      : `${shortDate(ws).split(', ').slice(1).join(', ')} to ${shortDate(addDays(ws, 6)).split(', ').slice(1).join(', ')}`)),
     h('div', { class: 'week-dots' }, week.map(d => {
       const k = kindOf(d);
       const future = d > today;
-      const label = `${new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' })}: ${future ? 'coming up' : { lift: 'lifting', cardio: 'cardio', both: 'lifting and cardio', rest: d === today ? 'nothing yet' : 'rest' }[k]}`;
+      // A planned session that hasn't happened yet shows as a dashed ring in its color.
+      const plan = occs.filter(o => o.date === d && !o.done);
+      const p = (k === 'rest' || future) && plan.length ? plan[0] : null;
+      const planText = plan.length ? `, planned: ${plan.map(o => `${o.title}${o.time ? ` at ${clock(o.time)}` : ''}`).join(', ')}` : '';
+      const label = `${new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' })}: ${future ? (plan.length ? '' : 'nothing planned') : { lift: 'lifting', cardio: 'cardio', both: 'lifting and cardio', rest: d === today ? 'nothing yet' : 'rest' }[k]}${planText}`.replace(': , ', ': ');
       return h('span', { class: 'wd' },
-        h('span', { class: `wd-dot k-${future ? 'future' : k}${d === today ? ' is-today' : ''}`, role: 'img', 'aria-label': label }, dayIcon[k] && !future ? icon(dayIcon[k], 18) : null),
-        h('span', { class: 'tiny muted', 'aria-hidden': 'true' }, new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'narrow' })));
+        h('span', { class: `wd-dot k-${p ? `plan-${p.kind}` : future ? 'future' : k}${d === today ? ' is-today' : ''}`, role: 'img', 'aria-label': label },
+          p ? ({ strength: 'L', cardio: 'C', stretch: 'S' }[p.kind]) : dayIcon[k] && !future ? icon(dayIcon[k], 18) : null),
+        h('span', { class: 'tiny muted', 'aria-hidden': 'true' }, new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'narrow' })),
+        plan.length && plan[0].time ? h('span', { class: 'tiny muted wd-time', 'aria-hidden': 'true' }, clock(plan[0].time)) : null);
     })),
     h('div', { class: 'grid-3', style: { borderTop: '1px solid var(--rule)', paddingTop: '12px' } },
       h('div', { class: 'stat' }, h('span', { class: 'num', style: { fontSize: '24px' } }, goal ? `${weekLifts} of ${goal}` : String(weekLifts)), h('span', { class: 'label' }, goal ? 'Lifting goal' : 'Lifting sessions')),
@@ -82,6 +128,17 @@ export async function render(root) {
         h('span', { class: 'label' }, `${wUnit()} lifted${volChange != null && Math.abs(volChange) >= 1 ? `, ${volChange > 0 ? 'up' : 'down'} ${fmt0(Math.abs(volChange))}%` : ''}`)),
       h('div', { class: 'stat' }, h('span', { class: 'num', style: { fontSize: '24px' } }, weekCardio.some(c => c.distance_m) ? fmtDist(weekCardio.reduce((a, c) => a + (c.distance_m || 0), 0)) : String(weekCardio.length)),
         h('span', { class: 'label' }, weekCardio.some(c => c.distance_m) ? `cardio, ${weekCardio.length} session${weekCardio.length === 1 ? '' : 's'}` : 'cardio sessions'))));
+
+  // Coming up: the planned sessions after the next one.
+  const later = upcoming.slice(nextOcc ? 1 : 0, (nextOcc ? 1 : 0) + 4);
+  const color = (k) => (k === 'strength' ? 'var(--lift)' : k === 'cardio' ? 'var(--kcal)' : 'var(--green)');
+  const comingCard = h('section', { class: 'card', 'aria-label': 'Coming up', style: { gap: 0 } },
+    h('div', { class: 'card-head', style: { alignItems: 'center' } }, h('h2', null, 'Coming up'), h('a', { class: 'small', href: '#/train/schedule' }, sch.schedule.length ? 'Edit schedule' : 'Plan your week')),
+    later.length ? h('div', { class: 'list' }, later.map(o => h('button', { class: 'sched-row', onclick: () => editSchedule(sch.schedule.find(s => s.id === o.schedule_id), schCtx, o) },
+      h('span', { class: 'sched-bar', style: { background: color(o.kind) }, 'aria-hidden': 'true' }),
+      h('span', { class: 'main' }, h('span', { class: 'title' }, occTitle(o)), h('span', { class: 'small muted' }, [o.moved_from ? `Moved from ${shortDate(o.moved_from)}` : KIND_LABEL[o.kind], extras(o)].filter(Boolean).join('. '))),
+      h('span', { class: 'small', style: { fontWeight: 600, whiteSpace: 'nowrap' } }, whenText(o)))))
+      : h('p', { class: 'note' }, sch.schedule.length ? 'Nothing else planned in the next four weeks.' : 'Schedule your lifting and cardio for each week, with times and reminders, and the next session shows at the top.'));
 
   // 12-week trend.
   const weeks = stats.weeks.slice(-12);
@@ -108,7 +165,11 @@ export async function render(root) {
   const cells = monthCells(month).map(iso => {
     if (!iso) return h('span', { 'aria-hidden': 'true' });
     const n = Number(iso.slice(8));
-    if (iso > today) return h('span', { class: 'cal-day v-future', 'aria-hidden': 'true' }, h('b', null, n));
+    const plan = occs.filter(o => o.date === iso && !o.done);
+    if (iso > today) return plan.length
+      ? h('button', { class: 'cal-day v-future has-plan', 'aria-label': `${shortDate(iso)}, planned: ${plan.map(o => o.title).join(', ')}`, onclick: () => planSheet(iso, plan, sch, schCtx) },
+          h('b', null, n), h('span', { class: 'cal-dots', 'aria-hidden': 'true' }, plan.slice(0, 3).map(o => h('i', { class: `p-${o.kind}` }))))
+      : h('span', { class: 'cal-day v-future', 'aria-hidden': 'true' }, h('b', null, n));
     const x = byDay[iso] || {};
     const k = kindOf(iso);
     return h('button', { class: `cal-day t-${k}`, 'aria-current': iso === today ? 'date' : null,
@@ -126,6 +187,7 @@ export async function render(root) {
     h('div', { class: 'legend' },
       h('span', null, h('i', { class: 'd-lift', style: { width: '8px', height: '8px', borderRadius: '4px' } }), 'Strength'),
       h('span', null, h('i', { class: 'd-cardio', style: { width: '8px', height: '8px', borderRadius: '4px' } }), 'Cardio'),
+      sch.schedule.length ? h('span', null, h('i', { class: 'p-strength', style: { width: '8px', height: '8px', borderRadius: '4px' } }), 'Planned') : null,
       h('span', null, 'Tap a day to see it')));
 
   // Recent sessions.
@@ -157,11 +219,11 @@ export async function render(root) {
     ...recs.map(r => h('div', { class: 'kv' }, h('span', null, r.n), h('span', { style: { fontWeight: 600, whiteSpace: 'nowrap' } }, `${r.v}, ${shortDate(r.d).split(', ').slice(1).join(', ')}`)))) : null;
 
   root.replaceChildren(
-    pageHead('Strength and cardio', 'Train', [h('a', { class: 'btn sm', href: '#/train/cardio/new' }, 'Log cardio'), h('a', { class: 'btn sm primary desk-only', href: '#/train/new' }, 'Empty workout')]),
+    pageHead('Strength and cardio', 'Train', [h('a', { class: 'btn sm', href: '#/train/schedule' }, 'Schedule'), h('a', { class: 'btn sm', href: '#/train/cardio/new' }, 'Log cardio'), h('a', { class: 'btn sm primary desk-only', href: '#/train/new' }, 'Empty workout')]),
     h('div', { class: 'stack' },
       trainSwitch('overview'),
       h('div', { class: 'row' },
-        h('div', { class: 'grow-3 stack' }, nextCard, weekCard, trendCard),
+        h('div', { class: 'grow-3 stack' }, nextCard, weekCard, comingCard, trendCard),
         h('div', { class: 'grow-2 stack' }, calendar, recent, records))));
 }
 
@@ -173,6 +235,15 @@ function pickRoutine(routines) {
         h('div', { class: 'main' }, h('span', { class: 'title' }, r.name), h('span', { class: 'small muted' }, r.last ? `Last done ${relDayLc(r.last)}` : 'Not done yet')),
         icon('right', 18))),
       h('a', { class: 'btn block', href: '#/train/new', style: { marginTop: '12px' }, onclick: () => s.close() }, 'Empty workout')),
+  });
+}
+
+function planSheet(iso, plan, sch, ctx) {
+  const s = openSheet({
+    title: `${shortDate(iso)}, planned`,
+    body: h('div', { class: 'list' }, plan.map(o => h('button', { class: 'list-row', onclick: () => { s.close(); editSchedule(sch.schedule.find(x => x.id === o.schedule_id), ctx, o); } },
+      h('div', { class: 'main' }, h('span', { class: 'title' }, occTitle(o)), h('span', { class: 'small muted' }, [KIND_LABEL[o.kind], o.time ? clock(o.time) : null].filter(Boolean).join(', '))),
+      icon('right', 18)))),
   });
 }
 

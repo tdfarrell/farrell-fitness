@@ -16,12 +16,13 @@ export const KINDS = [
   ['weigh_in', 'Weigh in', 'Checks itself when you log a weight.'],
   ['meds', 'Meds and supplements', 'Checks itself when everything on your Health list is taken.'],
   ['log_food', 'Log food', 'Checks itself when you log any food.'],
+  ['mobility', 'Stretching', 'Checks itself from your stretching sessions. Set a goal in minutes, or leave it blank for any session.'],
   ['journal', 'Journal', 'Checks itself when you write a journal entry.'],
   ['water', 'Water goal', 'Checks itself when Drinks on Today reaches your water goal.'],
 ];
 const KIND_HINT = Object.fromEntries(KINDS.map(k => [k[0], k[2]]));
-const SOURCE = { whoop: 'WHOOP', weight: 'Weight log', meds: 'Health', food: 'Food log', journal: 'Journal', water: 'Drinks' };
-const HAS_TARGET = new Set(['minutes', 'count', 'steps', 'sleep']);
+const SOURCE = { whoop: 'WHOOP', weight: 'Weight log', meds: 'Health', food: 'Food log', journal: 'Journal', water: 'Drinks', stretch: 'Stretching' };
+const HAS_TARGET = new Set(['minutes', 'count', 'steps', 'sleep', 'mobility']);
 
 const fmtWater = (ml) => (state.settings?.units === 'metric' ? `${fmt1(ml / 1000).replace('.0', '')} L` : `${fmt0(ml / 29.5735)} oz`);
 
@@ -32,6 +33,7 @@ function subText(x) {
   if (x.kind === 'count') return x.value != null ? `${fmt0(x.value)} of ${fmt0(x.target)}` : `Goal ${fmt0(x.target || 0)}`;
   if (x.kind === 'meds') return x.due != null ? (x.due ? `${fmt0(x.value)} of ${fmt0(x.due)} doses taken` : 'Nothing due today') : 'Add your list in Health';
   if (x.kind === 'water') return x.value ? `${fmtWater(x.value)} so far` : 'Log water from Today';
+  if (x.kind === 'mobility') return x.value ? `${fmt0(x.value)}${x.target ? ` of ${fmt0(x.target)}` : ''} min stretched` : x.target ? `${fmt0(x.target)} min goal. Start a routine from Train > Stretch` : 'Any stretching session counts';
   if (x.auto) return x.done ? `From your ${SOURCE[x.source]?.toLowerCase() || 'log'}` : `Checks itself from your ${SOURCE[x.source]?.toLowerCase() || 'log'}`;
   return x.done ? 'Done' : 'Not yet';
 }

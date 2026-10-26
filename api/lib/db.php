@@ -430,6 +430,58 @@ function schema_sql(string $driver): array {
             url VARCHAR(80),
             created_at INT NOT NULL
         )",
+        // Added in schema version 7: stretching and the workout schedule.
+        "stretches (
+            id $pk,
+            user_id INT NOT NULL,
+            name VARCHAR(80) NOT NULL,
+            area VARCHAR(24) NOT NULL,
+            hold_s INT NOT NULL DEFAULT 30,
+            per_side INT NOT NULL DEFAULT 0,
+            reps INT,
+            cue VARCHAR(255),
+            custom INT NOT NULL DEFAULT 0,
+            archived INT NOT NULL DEFAULT 0
+        )",
+        "stretch_routines (
+            id $pk,
+            user_id INT NOT NULL,
+            name VARCHAR(80) NOT NULL,
+            items TEXT NOT NULL,
+            attach TEXT,
+            position INT NOT NULL DEFAULT 0
+        )",
+        "stretch_sessions (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            routine_id INT,
+            name VARCHAR(80) NOT NULL,
+            duration_s INT NOT NULL,
+            stretches INT NOT NULL DEFAULT 0,
+            created_at INT NOT NULL
+        )",
+        "workout_schedule (
+            id $pk,
+            user_id INT NOT NULL,
+            kind VARCHAR(16) NOT NULL,
+            ref_id INT,
+            activity VARCHAR(40),
+            setting VARCHAR(16),
+            title VARCHAR(80),
+            detail VARCHAR(80),
+            repeat_kind VARCHAR(8) NOT NULL DEFAULT 'weekly',
+            weekdays VARCHAR(40),
+            every_n INT NOT NULL DEFAULT 1,
+            start_date VARCHAR(10) NOT NULL,
+            end_date VARCHAR(10),
+            time VARCHAR(5),
+            remind_min INT,
+            warmup_id INT,
+            cooldown_id INT,
+            exceptions TEXT,
+            created_at INT NOT NULL
+        )",
     ];
     $sql = array_map(fn($x) => "CREATE TABLE IF NOT EXISTS $x$tail", $t);
     $idx = [
@@ -445,6 +497,8 @@ function schema_sql(string $driver): array {
         'med_doses_user_date' => 'med_doses (user_id, date)',
         'reminder_log_date' => 'reminder_log (date)',
         'drinks_user_date' => 'drinks (user_id, date)',
+        'stretch_sessions_user_date' => 'stretch_sessions (user_id, date)',
+        'schedule_user' => 'workout_schedule (user_id)',
     ];
     foreach ($idx as $name => $on) {
         $sql[] = $driver === 'sqlite' ? "CREATE INDEX IF NOT EXISTS $name ON $on" : "CREATE INDEX $name ON $on";
@@ -453,7 +507,7 @@ function schema_sql(string $driver): array {
 }
 
 // Bump when the schema changes. Existing databases are brought up to date on the next request.
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 /** Columns added after the first release: [table, column, type]. */
 function added_columns(): array {
@@ -543,6 +597,10 @@ function migrate_data(PDO $pdo, int $from): void {
             if ($n !== $r['equipment']) $up->execute([$n, $r['id']]);
         }
         $pdo->exec("UPDATE exercises SET kind = 'core' WHERE LOWER(muscle) IN ('core', 'abs', 'abdominals')");
+    }
+    if ($from < 7) {
+        // The starter "Stretch" habit (minutes) now ticks itself from stretching sessions.
+        $pdo->exec("UPDATE habits SET kind = 'mobility' WHERE kind = 'minutes' AND LOWER(name) IN ('stretch', 'stretching', 'mobility')");
     }
 }
 

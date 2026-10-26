@@ -17,6 +17,8 @@ require __DIR__ . '/lib/backup.php';
 require __DIR__ . '/lib/push.php';
 require __DIR__ . '/lib/reminders.php';
 require __DIR__ . '/lib/rest.php';
+require __DIR__ . '/lib/stretch.php';
+require __DIR__ . '/lib/schedule.php';
 require __DIR__ . '/lib/sync.php';
 require __DIR__ . '/lib/report.php';
 require __DIR__ . '/lib/nutrition.php';
@@ -634,5 +636,9 @@ function route_export(int $uid, string $m) {
         'habits' => $t('SELECT id, name, slot, kind, target, active FROM habits WHERE user_id = ? ORDER BY position, id'),
         'habit_logs' => $t('SELECT habit_id, date, done, value FROM habit_logs WHERE user_id = ? ORDER BY date'),
         'journal' => array_map('journal_out', $t('SELECT * FROM journal WHERE user_id = ? ORDER BY date')),
+        'stretches' => array_map('stretch_out', $t('SELECT * FROM stretches WHERE user_id = ? AND archived = 0 ORDER BY name')),
+        'stretch_routines' => $t('SELECT name, items, attach FROM stretch_routines WHERE user_id = ? ORDER BY position, id'),
+        'stretch_sessions' => array_map('stretch_session_out', $t('SELECT * FROM stretch_sessions WHERE user_id = ? ORDER BY date')),
+        'workout_schedule' => schedule_rows($uid),
     ];
 }

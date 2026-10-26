@@ -290,6 +290,68 @@ check($st === 200 && $sw && abs($sw['weight_kg'] - 88.81) < 0.01 && $sw['body_fa
 [, $s] = api('sync/status');
 check($st === 200 && $r['saved'] === 2 && $s['uses'] === 2 && $s['count'] === 3, 'several samples with a bearer key');
 
+/* stage 4: stretching */
+[$st, $r] = api('stretch');
+check($st === 200 && count($r['stretches']) >= 20 && count($r['routines']) === 3 && $r['routines'][0]['est_s'] > 60, 'stretch library and starter routines');
+$pigeon = array_values(array_filter($r['stretches'], fn($x) => $x['name'] === 'Pigeon pose'))[0];
+[$st, $r] = api('stretch/save', ['name' => 'Wall slides', 'area' => 'Shoulders', 'hold_s' => 3, 'reps' => 12]);
+$wall = $r['stretch'] ?? null;
+check($st === 200 && $wall['custom'] && $wall['hold_s'] === 5 && $wall['reps'] === 12 && !$wall['per_side'], 'add your own stretch (hold kept to at least 5 s)');
+[$st] = api('stretch/routines/save', ['name' => 'Empty', 'items' => []]);
+check($st === 400, 'a stretching routine needs a stretch');
+$ub = array_values(array_filter(api('routines')[1]['routines'], fn($x) => $x['name'] === 'Upper A'))[0];
+[$st, $r] = api('stretch/routines/save', ['name' => 'Upper cool-down', 'items' => [['stretch_id' => $pigeon['id'], 'hold_s' => 60], ['stretch_id' => $wall['id']], ['stretch_id' => 999999]],
+    'attach' => [['type' => 'routine', 'id' => $ub['id'], 'when' => 'after'], ['type' => 'routine', 'id' => 999999, 'when' => 'after'], ['type' => 'cardio', 'activity' => 'Run', 'when' => 'after'], ['type' => 'cardio', 'activity' => 'Fly', 'when' => 'after']]]);
+$cool = array_values(array_filter($r['routines'] ?? [], fn($x) => $x['name'] === 'Upper cool-down'))[0] ?? null;
+check($st === 200 && count($cool['items']) === 2 && $cool['items'][0]['hold_s'] === 60 && count($cool['attach']) === 2 && $cool['est_s'] === 60 * 2 + 5 + 5 + 5, 'stretching routine keeps its stretches and real attachments only');
+api('habits', null, ['date' => $today]);
+$mob = q_one("SELECT id, target FROM habits WHERE user_id = 1 AND kind = 'mobility'");
+check($mob && (float) $mob['target'] === 10.0, 'starter Stretch habit counts stretching sessions');
+[$st, $r] = api('stretch/log', ['date' => $today, 'routine_id' => $cool['id'], 'duration_s' => 600, 'stretches' => 2]);
+check($st === 200 && $r['session']['name'] === 'Upper cool-down' && $r['session']['duration_s'] === 600, 'log a stretching session');
+[, $r] = api('habits', null, ['date' => $today, 'days' => 7]);
+$mh = array_values(array_filter($r['habits'], fn($x) => $x['kind'] === 'mobility'))[0] ?? null;
+check($mh && $mh['done'] && $mh['value'] == 10 && $mh['source'] === 'stretch', 'stretching habit ticks itself from the session');
+[, $r] = api('stretch');
+check($r['week']['sessions'] === 1 && $r['week']['minutes'] === 10, 'stretching totals for the week');
+
+/* stage 4: workout schedule */
+[$st] = api('schedule/save', ['kind' => 'strength', 'repeat' => 'weekly', 'weekdays' => [], 'ref_id' => $ub['id']]);
+check($st === 400, 'weekly needs a day');
+[$st] = api('schedule/save', ['kind' => 'strength', 'repeat' => 'weekly', 'weekdays' => [1], 'ref_id' => 999999]);
+check($st === 400, 'strength needs one of your routines');
+$wd = (int) date('w', strtotime($today));
+$tomorrow = date('Y-m-d', strtotime("$today 12:00 +1 day"));
+[$st, $r] = api('schedule/save', ['kind' => 'strength', 'repeat' => 'weekly', 'weekdays' => [$wd, 9], 'every_n' => 1, 'ref_id' => $ub['id'], 'time' => '06:00',
+    'start_date' => $today, 'remind_min' => 30, 'cooldown_id' => $cool['id'], 'warmup_id' => 999999]);
+$sLift = $r['id'] ?? 0;
+$row = array_values(array_filter($r['schedule'] ?? [], fn($x) => $x['id'] === $sLift))[0] ?? null;
+check($st === 200 && $row['title'] === 'Upper A' && $row['weekdays'] === [$wd] && $row['cooldown_id'] === $cool['id'] && $row['warmup_id'] === null, 'weekly strength session saved; bad days and links dropped');
+[, $r] = api('schedule/save', ['kind' => 'cardio', 'repeat' => 'days', 'every_n' => 2, 'activity' => 'Run', 'setting' => 'treadmill', 'detail' => '5 km', 'title' => 'Run', 'start_date' => $today, 'time' => '18:00']);
+$sRun = $r['id'];
+[, $r] = api('schedule/save', ['kind' => 'stretch', 'repeat' => 'once', 'ref_id' => $cool['id'], 'start_date' => $tomorrow, 'time' => '07:00']);
+$sOnce = $r['id'];
+[$st, $r] = api('schedule', null, ['from' => $today, 'to' => date('Y-m-d', strtotime("$today 12:00 +13 days"))]);
+$lifts = array_values(array_filter($r['occurrences'], fn($o) => $o['schedule_id'] === $sLift));
+$runs = array_values(array_filter($r['occurrences'], fn($o) => $o['schedule_id'] === $sRun));
+$onceO = array_values(array_filter($r['occurrences'], fn($o) => $o['schedule_id'] === $sOnce));
+check(count($lifts) === 2 && $lifts[0]['date'] === $today && count($runs) === 7 && $runs[1]['date'] === date('Y-m-d', strtotime("$today 12:00 +2 days")) && count($onceO) === 1 && $onceO[0]['date'] === $tomorrow, 'occurrences: weekly, every 2 days, once');
+check($runs[0]['setting'] === 'treadmill' && $runs[0]['detail'] === '5 km' && $lifts[0]['done'] === true, "planned sessions carry their details; today's Upper A counts as done");
+check($r['occurrences'][0]['date'] <= $r['occurrences'][count($r['occurrences']) - 1]['date'], 'occurrences sorted by date');
+[$st, $r] = api('schedule/exception', ['id' => $sRun, 'date' => $runs[1]['date'], 'action' => 'move', 'to_date' => $runs[1]['date'], 'to_time' => '06:30']);
+$moved = array_values(array_filter($r['occurrences'], fn($o) => $o['schedule_id'] === $sRun && $o['date'] === $runs[1]['date']))[0] ?? null;
+check($moved && $moved['time'] === '06:30' && $moved['moved_from'] === $runs[1]['date'], 'move one date to a new time');
+[, $r] = api('schedule/exception', ['id' => $sRun, 'date' => $runs[2]['date'], 'action' => 'skip']);
+check(!array_filter($r['occurrences'], fn($o) => $o['schedule_id'] === $sRun && $o['date'] === $runs[2]['date']), 'skip one date');
+[, $r] = api('schedule/exception', ['id' => $sRun, 'date' => $runs[2]['date'], 'action' => 'restore']);
+check((bool) array_filter($r['occurrences'], fn($o) => $o['schedule_id'] === $sRun && $o['date'] === $runs[2]['date']), 'undo a skip');
+api('stretch/routines/delete', ['id' => $cool['id']]);
+[, $r] = api('schedule');
+$liftRow = array_values(array_filter($r['schedule'], fn($x) => $x['id'] === $sLift))[0] ?? ['cooldown_id' => 'missing'];
+check(!array_filter($r['schedule'], fn($x) => $x['id'] === $sOnce) && $liftRow['cooldown_id'] === null, 'deleting a stretching routine takes it off the schedule');
+[$st, $r] = api('export');
+check(isset($r['stretches'], $r['stretch_sessions'], $r['workout_schedule']) && count($r['workout_schedule']) === 2 && count($r['stretch_sessions']) === 1, 'export includes stretching and the schedule');
+
 /* push and reminders */
 require_once __DIR__ . '/../api/lib/auth.php';
 foreach (['settings', 'cardio', 'health', 'habits', 'photos', 'backup', 'push', 'reminders', 'rest', 'whoop'] as $lib) require_once __DIR__ . "/../api/lib/$lib.php";
@@ -338,6 +400,21 @@ check($st === 200 && (int) q_val('SELECT COUNT(*) FROM rest_alarms') === 0, 'res
 [$st, $r] = api('settings', ['rest_alarm' => ['tone' => 'foghorn', 'volume' => 3, 'notify' => false], 'rest_seconds' => 5]);
 check($st === 200 && $r['settings']['rest_alarm']['tone'] === 'bell' && $r['settings']['rest_alarm']['volume'] == 1 && $r['settings']['rest_alarm']['notify'] === false && $r['settings']['rest_alarm']['sound'] === true && $r['settings']['rest_seconds'] === 15, 'rest timer settings saved and cleaned');
 api('settings', ['rest_alarm' => ['notify' => true], 'rest_seconds' => 120]);
+
+/* reminder before a scheduled session */
+foreach (['stretch', 'schedule'] as $lib) require_once __DIR__ . "/../api/lib/$lib.php";
+$soon = time() + 20 * 60;
+q('DELETE FROM workout_schedule WHERE user_id = 1');
+db_insert('workout_schedule', ['user_id' => 1, 'kind' => 'cardio', 'activity' => 'Row', 'title' => 'Row', 'detail' => '30 min', 'repeat_kind' => 'once', 'weekdays' => '[]', 'every_n' => 1,
+    'start_date' => date('Y-m-d', $soon), 'time' => date('H:i', $soon), 'remind_min' => 30, 'exceptions' => '{}', 'created_at' => time()]);
+$sent = [];
+$GLOBALS['ff_http_mock'] = function ($method, $url, $headers, $body) use (&$sent) { $sent[] = compact('url', 'headers', 'body'); return [201, '']; };
+$keys = run_reminders_for(1, time());
+check((bool) array_filter($keys, fn($k) => str_starts_with($k, 'sched:')), 'reminder before a scheduled session');
+$n = count($sent);
+run_reminders_for(1, time() + 60);
+check(count($sent) === $n, 'a scheduled-session reminder is sent once');
+q('DELETE FROM workout_schedule WHERE user_id = 1');
 
 $GLOBALS['ff_http_mock'] = fn() => [410, ''];
 push_to_user(1, ['title' => 'x']);
@@ -501,6 +578,12 @@ q("DELETE FROM users WHERE username = 'taken'");
 [$st, $r] = api('export');
 check($st === 200 && count($r['journal']) === 1 && count($r['lab_results']) === 2 && count($r['meal_plans']) === 1 && isset($r['habits'], $r['blood_sugar'], $r['measurements'], $r['cardio']), 'export includes the new data');
 check(count($r['progress_photos']) === 1 && isset($r['medications_and_supplements'][0]['schedule']) && count($r['doses_taken']) >= 4, 'export includes photos (list only), med schedules and doses');
+
+/* upgrading from version 6: the starter Stretch habit becomes a stretching habit */
+$oldHabit = db_insert('habits', ['user_id' => 1, 'name' => 'Stretch', 'slot' => 'day', 'kind' => 'minutes', 'target' => 10, 'active' => 1, 'position' => 99, 'created_at' => time()]);
+q("UPDATE meta SET v = '6' WHERE k = 'schema_version'");
+api('habits');
+check(q_val('SELECT kind FROM habits WHERE id = ?', [$oldHabit]) === 'mobility', 'version 6 database: Stretch habit counts stretching sessions');
 
 /* upgrading from version 5: free-text equipment mapped onto the list */
 $custom = db_insert('exercises', ['user_id' => 1, 'name' => 'Old curl', 'muscle' => 'Biceps', 'equipment' => 'ez curl bar', 'archived' => 0]);

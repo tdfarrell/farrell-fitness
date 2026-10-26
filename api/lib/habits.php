@@ -4,13 +4,13 @@
 // weigh-in from the weight log, meds from the Health checklist, journal from today's entry.
 
 const HABIT_SLOTS = ['morning', 'day', 'evening'];
-const HABIT_KINDS = ['check', 'minutes', 'count', 'steps', 'sleep', 'weigh_in', 'meds', 'log_food', 'journal', 'water'];
+const HABIT_KINDS = ['check', 'minutes', 'count', 'steps', 'sleep', 'weigh_in', 'meds', 'log_food', 'journal', 'water', 'mobility'];
 
 function default_habits(): array {
     return [
         ['Brush teeth', 'morning', 'check', null], ['Weigh in', 'morning', 'weigh_in', null], ['Meds and supplements', 'morning', 'meds', null],
         ['7+ hours of sleep', 'morning', 'sleep', 7],
-        ['10,000 steps', 'day', 'steps', 10000], ['Time outside', 'day', 'minutes', 30], ['Stretch', 'day', 'minutes', 10],
+        ['10,000 steps', 'day', 'steps', 10000], ['Time outside', 'day', 'minutes', 30], ['Stretch', 'day', 'mobility', 10],
         ['Brush teeth', 'evening', 'check', null], ['Floss', 'evening', 'check', null], ['Journal', 'evening', 'journal', null],
     ];
 }
@@ -47,6 +47,10 @@ function habit_status(int $uid, array $habits, string $from, string $to): array 
     $food = array_flip(array_column(q_all('SELECT DISTINCT date FROM diary_entries WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]), 'date'));
     $journal = array_flip(array_column(q_all('SELECT date FROM journal WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]), 'date'));
     $meds = array_filter($habits, fn($h) => $h['kind'] === 'meds') ? med_progress($uid, $from, $to) : [];
+    $stretch = [];
+    if (array_filter($habits, fn($h) => $h['kind'] === 'mobility')) {
+        foreach (q_all('SELECT date, SUM(duration_s) s FROM stretch_sessions WHERE user_id = ? AND date BETWEEN ? AND ? GROUP BY date', [$uid, $from, $to]) as $r) $stretch[$r['date']] = (float) $r['s'] / 60;
+    }
     $water = [];
     if (array_filter($habits, fn($h) => $h['kind'] === 'water')) {
         foreach (q_all("SELECT date, SUM(amount) ml FROM drinks WHERE user_id = ? AND kind = 'water' AND date BETWEEN ? AND ? GROUP BY date", [$uid, $from, $to]) as $r) $water[$r['date']] = (float) $r['ml'];
@@ -80,6 +84,14 @@ function habit_status(int $uid, array $habits, string $from, string $to): array 
                 case 'meds':
                     // Done when every scheduled dose due that day is taken. Days with nothing due count as done.
                     if (($meds[$d]['items'] ?? 0) > 0) { $value = $meds[$d]['taken']; $due = $meds[$d]['due']; $auto = $meds[$d]['taken'] >= $meds[$d]['due']; $source = 'meds'; }
+                    break;
+                case 'mobility':
+                    // Minutes from stretching sessions, plus any you entered by hand; done at the goal (or any session without one).
+                    if (isset($stretch[$d]) || $value !== null) {
+                        $value = round(($stretch[$d] ?? 0) + ($value ?? 0));
+                        $auto = $h['target'] ? $value >= $h['target'] : $value > 0;
+                        $source = isset($stretch[$d]) ? 'stretch' : null;
+                    }
                     break;
                 case 'minutes': case 'count':
                     if ($value !== null && $h['target']) $auto = $value >= $h['target'];
