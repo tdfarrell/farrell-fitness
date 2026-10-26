@@ -44,6 +44,7 @@ const ICONS = {
   sound: '<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
   muted: '<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
   play: '<path d="M7 5l12 7-12 7z" fill="currentColor"/>',
+  ramp: '<path d="M4 18l5-5 4 3 7-8"/>',
   sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
   right: '<path d="M9 6l6 6-6 6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',

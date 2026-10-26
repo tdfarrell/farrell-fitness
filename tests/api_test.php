@@ -117,6 +117,46 @@ check($r['cardio']['distance_m'] == 8047 && $r['cardio']['sessions'] === 2, 'car
 check(count($r['weeks']) >= 12, 'weekly series for charts');
 api('cardio/delete', ['id' => $jr]);
 
+/* stage 4: exercise type and equipment, planned sets, effort, where cardio was done */
+$plank = array_values(array_filter($ex, fn($e) => $e['name'] === 'Plank'))[0] ?? null;
+check($plank && $plank['kind'] === 'core' && $plank['equipment'] === 'Bodyweight', 'seeded core exercises have the core type');
+check(($b2 = array_values(array_filter(api('exercises')[1]['exercises'], fn($e) => $e['id'] === $bench))[0] ?? null) && $b2['last']['weight_kg'] == 100 && $b2['last']['reps'] === 6 && $b2['last']['date'] === $today, 'exercise list carries the last top set');
+[$st, $r] = api('exercises/save', ['name' => 'KB swing', 'muscle' => 'Glutes', 'equipment' => 'kettle bell', 'kind' => 'plyo']);
+$swing = $r['exercise']['id'] ?? 0;
+check($st === 200 && $r['exercise']['equipment'] === 'Kettlebell' && $r['exercise']['kind'] === 'plyo', 'equipment mapped onto the list, type saved');
+[, $r] = api('exercises/save', ['id' => $swing, 'name' => 'KB swing', 'equipment' => 'gizmo', 'kind' => 'wizardry']);
+check($r['exercise']['equipment'] === 'Other' && $r['exercise']['kind'] === 'lift', 'unknown equipment is Other, unknown type is lift');
+api('exercises/save', ['id' => $swing, 'name' => 'KB swing', 'equipment' => 'Kettlebell', 'kind' => 'plyo']);
+[$st, $r] = api('workouts/save', ['date' => $today, 'name' => 'Mixed', 'effort' => 14, 'sets' => [
+    ['exercise_id' => $bench, 'reps' => 5, 'weight_kg' => 100, 'rpe' => 8.5], ['exercise_id' => $swing, 'reps' => 20, 'weight_kg' => 24, 'rpe' => 0],
+    ['exercise_id' => $plank['id'], 'reps' => 1, 'weight_kg' => 20]]]);
+$mixed = $r['workout']['id'] ?? 0;
+check($st === 200 && $r['workout']['volume_kg'] == 500 && $r['workout']['set_count'] === 3, 'lifting volume leaves out plyometric and core sets');
+check($r['workout']['effort'] === 10 && $r['workout']['sets'][0]['rpe'] == 8.5 && $r['workout']['sets'][1]['rpe'] == 1, 'session effort and set effort kept between 1 and 10');
+[, $r] = api('report/week', null, ['date' => $today]);
+check(($r['training']['volume_kg'] ?? $r['this']['volume_kg'] ?? null) !== null, 'weekly report still adds up training');
+api('workouts/delete', ['id' => $mixed]);
+[$st, $r] = api('routines/save', ['name' => 'Plan test', 'exercise_ids' => [$bench, $swing], 'plan' => [
+    ['sets' => [['weight_kg' => 20.4, 'reps' => 10, 'warmup' => true], ['weight_kg' => 100, 'reps' => 5], ['weight_kg' => 'x', 'reps' => 5]]], ['sets' => []]]]);
+$pr = $r['routine'] ?? null;
+check($st === 200 && count($pr['plan']) === 2 && $pr['plan'][0]['sets'][0]['warmup'] === true && $pr['plan'][0]['sets'][2]['weight_kg'] === null && $pr['plan'][1]['sets'] === [], 'routine keeps planned sets and warm-ups');
+[, $r] = api('routines');
+check(count(array_filter($r['routines'], fn($x) => $x['plan'] !== null)) === 1, 'routines without a plan have none');
+api('routines/delete', ['id' => $pr['id']]);
+[$st, $r] = api('cardio/save', ['date' => $today, 'activity' => 'Run', 'setting' => 'track', 'laps' => 12, 'lap_m' => 400, 'lap_times' => [124, 122, 121, 'x', 120]]);
+$tr = $r['session'] ?? null;
+check($st === 200 && $tr['setting'] === 'track' && $tr['distance_m'] == 4800 && $tr['duration_s'] === 487 && count($tr['lap_times']) === 4, 'track: laps give the distance, lap times the duration');
+[$st, $r] = api('cardio/save', ['date' => $today, 'activity' => 'Run', 'setting' => 'treadmill', 'duration_s' => 2100, 'distance_m' => 5632.7, 'incline_pct' => 1.5, 'resistance' => 9]);
+$tm = $r['session'] ?? null;
+check($tm['setting'] === 'treadmill' && abs($tm['elevation_m'] - 84.5) < 0.2 && $tm['resistance'] === null && $tm['record_key'] === 'Run, treadmill', 'treadmill: incline gives the climb, bike fields ignored');
+[, $r] = api('cardio/save', ['date' => $today, 'activity' => 'Swim', 'setting' => 'treadmill', 'duration_s' => 600]);
+check($r['session']['setting'] === null, 'a setting that does not fit the activity is dropped');
+api('cardio/delete', ['id' => $r['session']['id']]);
+[, $r] = api('training/stats');
+$keys = array_column($r['cardio_records'], 'activity');
+check(in_array('Run, treadmill', $keys, true) && in_array('Run', $keys, true), 'treadmill records kept apart from road and track');
+api('cardio/delete', ['id' => $tr['id']]); api('cardio/delete', ['id' => $tm['id']]);
+
 /* health */
 [$st, $r] = api('health/items/save', ['name' => 'Vitamin D3', 'dose' => '2,000 IU', 'kind' => 'supplement', 'time_of_day' => 'morning', 'supply' => 30]);
 $vd = $r['item']['id'] ?? 0;
@@ -461,6 +501,14 @@ q("DELETE FROM users WHERE username = 'taken'");
 [$st, $r] = api('export');
 check($st === 200 && count($r['journal']) === 1 && count($r['lab_results']) === 2 && count($r['meal_plans']) === 1 && isset($r['habits'], $r['blood_sugar'], $r['measurements'], $r['cardio']), 'export includes the new data');
 check(count($r['progress_photos']) === 1 && isset($r['medications_and_supplements'][0]['schedule']) && count($r['doses_taken']) >= 4, 'export includes photos (list only), med schedules and doses');
+
+/* upgrading from version 5: free-text equipment mapped onto the list */
+$custom = db_insert('exercises', ['user_id' => 1, 'name' => 'Old curl', 'muscle' => 'Biceps', 'equipment' => 'ez curl bar', 'archived' => 0]);
+$crunch = db_insert('exercises', ['user_id' => 1, 'name' => 'Old crunch', 'muscle' => 'abs', 'equipment' => 'none', 'archived' => 0]);
+q("UPDATE meta SET v = '5' WHERE k = 'schema_version'");
+api('exercises');
+check(q_val('SELECT equipment FROM exercises WHERE id = ?', [$custom]) === 'EZ bar' && q_val('SELECT equipment FROM exercises WHERE id = ?', [$crunch]) === 'Bodyweight'
+    && q_val('SELECT kind FROM exercises WHERE id = ?', [$crunch]) === 'core' && q_val('SELECT kind FROM exercises WHERE id = ?', [$custom]) === 'lift', 'version 5 database: equipment mapped, ab work becomes core');
 
 /* upgrading from version 2: old doses move to the new table */
 q('DELETE FROM med_doses');

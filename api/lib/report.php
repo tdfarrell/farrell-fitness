@@ -10,9 +10,10 @@ function training_totals(int $uid, string $from, string $to): array {
     $lifts = q_all('SELECT * FROM workouts WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]);
     $vol = 0.0; $sets = 0;
     foreach ($lifts as $w) {
-        foreach (q_all('SELECT reps, weight_kg, warmup FROM workout_sets WHERE workout_id = ?', [$w['id']]) as $s) {
+        foreach (q_all('SELECT s.reps, s.weight_kg, s.warmup, e.kind FROM workout_sets s JOIN exercises e ON e.id = s.exercise_id WHERE s.workout_id = ?', [$w['id']]) as $s) {
             if ($s['warmup']) continue;
-            $sets++; $vol += ((float) $s['weight_kg']) * ((int) $s['reps']);
+            $sets++;
+            if (kind_in_volume($s['kind'])) $vol += ((float) $s['weight_kg']) * ((int) $s['reps']);
         }
     }
     $cardio = cardio_sessions($uid, $from, $to);
@@ -42,7 +43,7 @@ function records_between(int $uid, string $from, string $to): array {
     $best = [];
     foreach ($sessions as $c) {
         if (!$c['distance_m']) continue;
-        $a = $c['activity'];
+        $a = $c['record_key'] ?? $c['activity'];
         $pace = $c['distance_m'] >= 1000 && $c['duration_s'] ? $c['duration_s'] / ($c['distance_m'] / 1000) : null;
         if ($c['date'] < $from) {
             $best[$a]['dist'] = max($best[$a]['dist'] ?? 0, $c['distance_m']);

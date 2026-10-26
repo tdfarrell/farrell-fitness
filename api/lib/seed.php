@@ -20,6 +20,8 @@ function seed_exercises(int $uid): void {
     ];
     $ids = [];
     foreach ($list as [$n, $m, $e]) $ids[$n] = db_insert('exercises', ['user_id' => $uid, 'name' => $n, 'muscle' => $m, 'equipment' => $e, 'archived' => 0]);
+    // Core work doesn't count toward lifting volume. (The column is missing on a database that hasn't upgraded yet.)
+    try { q("UPDATE exercises SET kind = 'core' WHERE user_id = ? AND muscle = 'Core'", [$uid]); } catch (PDOException $e) {}
     $routines = [
         'Upper A' => ['Bench press', 'Weighted pull-up', 'Overhead press', 'Chest-supported row', 'Lateral raise'],
         'Lower A' => ['Back squat', 'Romanian deadlift', 'Leg press', 'Lying leg curl', 'Standing calf raise'],

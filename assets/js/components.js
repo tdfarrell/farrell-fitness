@@ -157,7 +157,7 @@ export function foldCard({ key, title, summary, action, open: defaultOpen = true
           summary ? h('span', { class: 'small muted' }, summary) : null,
           icon(open ? 'up' : 'down', 20)),
         action || null),
-      ...(open ? content : []));
+      ...(open ? content.filter(Boolean) : []));
   };
   draw();
   return card;

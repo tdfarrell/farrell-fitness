@@ -2,6 +2,13 @@
 // Cardio sessions (logged here or imported from WHOOP) and training totals, records and trends.
 
 const CARDIO_ACTIVITIES = ['Run', 'Walk', 'Bike', 'Jump rope', 'Row', 'Swim', 'Hike', 'Elliptical', 'Stairs', 'Other'];
+// Where a session was done, for the activities where it changes what's logged and how pace compares.
+const CARDIO_SETTINGS = ['Run' => ['treadmill', 'track', 'road'], 'Walk' => ['treadmill', 'track', 'road'], 'Bike' => ['stationary', 'road']];
+
+/** Records are kept apart where the setting changes the pace: treadmill against road, stationary bike against road. */
+function cardio_record_key(string $activity, ?string $setting): string {
+    return $activity . ($setting === 'treadmill' ? ', treadmill' : ($setting === 'stationary' ? ', stationary' : ''));
+}
 
 /** WHOOP sports that are lifting, not cardio. Those stay with strength workouts. */
 function whoop_is_strength(?string $sport): bool {
@@ -58,6 +65,15 @@ function cardio_sessions(int $uid, string $from, string $to): array {
             'effort' => $c['effort'] !== null ? (int) $c['effort'] : null,
             'reps' => $c['reps'] !== null ? (int) $c['reps'] : null,
             'notes' => $c['notes'],
+            'setting' => $c['setting'] ?? null,
+            'incline_pct' => isset($c['incline_pct']) && $c['incline_pct'] !== null ? (float) $c['incline_pct'] : null,
+            'laps' => isset($c['laps']) && $c['laps'] !== null ? (int) $c['laps'] : null,
+            'lap_m' => isset($c['lap_m']) && $c['lap_m'] !== null ? (float) $c['lap_m'] : null,
+            'lap_times' => !empty($c['lap_times']) ? json_decode($c['lap_times'], true) : null,
+            'resistance' => isset($c['resistance']) && $c['resistance'] !== null ? (float) $c['resistance'] : null,
+            'cadence' => isset($c['cadence']) && $c['cadence'] !== null ? (int) $c['cadence'] : null,
+            'watts' => isset($c['watts']) && $c['watts'] !== null ? (int) $c['watts'] : null,
+            'record_key' => cardio_record_key($c['activity'], $c['setting'] ?? null),
         ];
     }
     foreach ($whoop as $id => $w) {
@@ -72,6 +88,8 @@ function cardio_sessions(int $uid, string $from, string $to): array {
             'kcal' => $w['kcal'] !== null ? (float) $w['kcal'] : null, 'strain' => $w['strain'] !== null ? (float) $w['strain'] : null,
             'zones' => $w['zones'] ? json_decode($w['zones'], true) : null,
             'effort' => null, 'reps' => null, 'notes' => null,
+            'setting' => null, 'incline_pct' => null, 'laps' => null, 'lap_m' => null, 'lap_times' => null,
+            'resistance' => null, 'cadence' => null, 'watts' => null, 'record_key' => whoop_activity($w['sport']),
         ];
     }
     usort($out, fn($a, $b) => [$b['date'], $b['start_time'] ?? ''] <=> [$a['date'], $a['start_time'] ?? '']);
@@ -107,6 +125,22 @@ function route_cardio_save(int $uid, string $m) {
         'notes' => param('notes') ? mb_substr((string) param('notes'), 0, 2000) : null,
         'whoop_id' => $whoopId,
     ];
+    $setting = (string) param('setting', '');
+    $data['setting'] = in_array($setting, CARDIO_SETTINGS[$activity] ?? [], true) ? $setting : null;
+    $s = $data['setting'];
+    $data['incline_pct'] = $s === 'treadmill' ? $flt('incline_pct', -5, 40) : null;
+    $data['laps'] = $s === 'track' ? $int('laps', 1, 1000) : null;
+    $data['lap_m'] = $s === 'track' ? $flt('lap_m', 50, 2000) : null;
+    $laps = [];
+    if ($s === 'track') foreach (array_slice((array) param('lap_times', []), 0, 200) as $t) if (is_numeric($t) && $t > 0 && $t < 7200) $laps[] = round((float) $t, 1);
+    $data['lap_times'] = $laps ? json_encode($laps) : null;
+    $data['resistance'] = $s === 'stationary' ? $flt('resistance', 0, 100) : null;
+    $data['cadence'] = $s === 'stationary' ? $int('cadence', 0, 250) : null;
+    $data['watts'] = $s === 'stationary' ? $int('watts', 0, 3000) : null;
+    // Fill in what follows from the rest: laps give the distance, lap times the duration, incline the climb.
+    if ($s === 'track' && $data['distance_m'] === null && $data['laps'] && $data['lap_m']) $data['distance_m'] = round($data['laps'] * $data['lap_m'], 2);
+    if ($s === 'track' && $data['duration_s'] === null && $laps) $data['duration_s'] = (int) round(array_sum($laps));
+    if ($s === 'treadmill' && $data['elevation_m'] === null && $data['incline_pct'] > 0 && $data['distance_m']) $data['elevation_m'] = round($data['distance_m'] * $data['incline_pct'] / 100, 1);
     if ($data['duration_s'] === null && $data['distance_m'] === null && !$whoopId) fail(400, 'Enter a time or a distance');
     if ($id = (int) param('id', 0)) {
         if (!q_one('SELECT id FROM cardio WHERE id = ? AND user_id = ?', [$id, $uid])) fail(404, 'Session not found');
@@ -152,7 +186,7 @@ function route_training_stats(int $uid, string $m) {
     $allFrom = $first ?: $to;
 
     // Strength.
-    $sets = q_all('SELECT w.id wid, w.date, s.exercise_id, e.name, s.reps, s.weight_kg, s.warmup FROM workout_sets s
+    $sets = q_all('SELECT w.id wid, w.date, s.exercise_id, e.name, e.kind, s.reps, s.weight_kg, s.warmup FROM workout_sets s
         JOIN workouts w ON w.id = s.workout_id JOIN exercises e ON e.id = s.exercise_id WHERE w.user_id = ? ORDER BY w.date, w.id, s.position', [$uid]);
     $lift = ['workouts' => [], 'sets' => 0, 'reps' => 0, 'volume_kg' => 0.0];
     $perEx = [];
@@ -161,7 +195,7 @@ function route_training_stats(int $uid, string $m) {
         if ($s['warmup']) continue;
         $kg = $s['weight_kg'] === null ? null : (float) $s['weight_kg'];
         $reps = $s['reps'] === null ? null : (int) $s['reps'];
-        $vol = ($kg ?? 0) * ($reps ?? 0);
+        $vol = kind_in_volume($s['kind']) ? ($kg ?? 0) * ($reps ?? 0) : 0;
         if ($s['date'] >= $from) {
             $lift['workouts'][$s['wid']] = true; $lift['sets']++; $lift['reps'] += $reps ?? 0; $lift['volume_kg'] += $vol;
         }
@@ -201,8 +235,9 @@ function route_training_stats(int $uid, string $m) {
             $cardio['by_activity'][$a] ??= ['activity' => $a, 'sessions' => 0, 'distance_m' => 0.0, 'duration_s' => 0];
             $cardio['by_activity'][$a]['sessions']++; $cardio['by_activity'][$a]['distance_m'] += $dist; $cardio['by_activity'][$a]['duration_s'] += $dur;
         }
-        $acts[$a] ??= ['activity' => $a, 'longest_distance' => null, 'longest_time' => null, 'best_pace' => null, 'most_reps' => null];
-        $r = &$acts[$a];
+        $rk = $s['record_key'] ?? $a;
+        $acts[$rk] ??= ['activity' => $rk, 'base_activity' => $a, 'longest_distance' => null, 'longest_time' => null, 'best_pace' => null, 'most_reps' => null];
+        $r = &$acts[$rk];
         $ref = ['date' => $s['date'], 'distance_m' => $s['distance_m'], 'duration_s' => $s['duration_s'], 'reps' => $s['reps'], 'id' => $s['id'], 'whoop_id' => $s['whoop_id']];
         if ($s['distance_m'] && (!$r['longest_distance'] || $s['distance_m'] > $r['longest_distance']['distance_m'])) $r['longest_distance'] = $ref;
         if ($s['duration_s'] && (!$r['longest_time'] || $s['duration_s'] > $r['longest_time']['duration_s'])) $r['longest_time'] = $ref;
@@ -220,7 +255,7 @@ function route_training_stats(int $uid, string $m) {
     $cardioRecords = array_values($acts);
     usort($cardioRecords, function ($a, $b) use ($cardio) {
         $order = array_column($cardio['by_activity'], 'activity');
-        $ia = array_search($a['activity'], $order, true); $ib = array_search($b['activity'], $order, true);
+        $ia = array_search($a['base_activity'], $order, true); $ib = array_search($b['base_activity'], $order, true);
         return ($ia === false ? 99 : $ia) <=> ($ib === false ? 99 : $ib);
     });
 

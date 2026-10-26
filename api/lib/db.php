@@ -453,7 +453,7 @@ function schema_sql(string $driver): array {
 }
 
 // Bump when the schema changes. Existing databases are brought up to date on the next request.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 /** Columns added after the first release: [table, column, type]. */
 function added_columns(): array {
@@ -478,6 +478,18 @@ function added_columns(): array {
         ['users', 'must_change_pw', 'INT NOT NULL DEFAULT 0'],
         ['users', 'last_seen_at', 'INT'],
         ['users', 'session_epoch', 'INT NOT NULL DEFAULT 0'],
+        // Version 6: exercise type, planned sets in routines, session effort, and where cardio was done.
+        ['exercises', 'kind', "VARCHAR(16) NOT NULL DEFAULT 'lift'"],
+        ['routines', 'plan', 'TEXT'],
+        ['workouts', 'effort', 'INT'],
+        ['cardio', 'setting', 'VARCHAR(16)'],
+        ['cardio', 'incline_pct', 'DOUBLE'],
+        ['cardio', 'laps', 'INT'],
+        ['cardio', 'lap_m', 'DOUBLE'],
+        ['cardio', 'lap_times', 'TEXT'],
+        ['cardio', 'resistance', 'DOUBLE'],
+        ['cardio', 'cadence', 'INT'],
+        ['cardio', 'watts', 'INT'],
     ];
 }
 
@@ -523,7 +535,34 @@ function migrate_data(PDO $pdo, int $from): void {
         $admins = (int) $pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn();
         if ($first && !$admins) $pdo->prepare('UPDATE users SET is_admin = 1 WHERE id = ?')->execute([(int) $first]);
     }
+    if ($from < 6) {
+        // Equipment was free text; map what's there onto the list. Core exercises get the core type.
+        $up = $pdo->prepare('UPDATE exercises SET equipment = ? WHERE id = ?');
+        foreach ($pdo->query('SELECT id, equipment FROM exercises WHERE equipment IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $n = normalize_equipment($r['equipment']);
+            if ($n !== $r['equipment']) $up->execute([$n, $r['id']]);
+        }
+        $pdo->exec("UPDATE exercises SET kind = 'core' WHERE LOWER(muscle) IN ('core', 'abs', 'abdominals')");
+    }
 }
+
+const EQUIPMENT = ['Barbell', 'Dumbbell', 'Kettlebell', 'Machine', 'Cable', 'Resistance band', 'Bodyweight', 'Smith machine', 'EZ bar', 'Trap bar', 'Other'];
+const EXERCISE_KINDS = ['lift', 'plyo', 'core', 'carry', 'olympic', 'mobility', 'other'];
+
+/** Free-text equipment onto the fixed list (null for blank). */
+function normalize_equipment($text): ?string {
+    $t = strtolower(trim((string) $text));
+    if ($t === '') return null;
+    foreach (EQUIPMENT as $e) if ($t === strtolower($e)) return $e;
+    $map = ['/smith/' => 'Smith machine', '/\bez\b|ez[- ]?bar|ez curl/' => 'EZ bar', '/trap|hex/' => 'Trap bar', '/kettle|\bkb\b/' => 'Kettlebell',
+        '/dumb|\bdb\b/' => 'Dumbbell', '/barbell|\bbb\b|\bbar\b/' => 'Barbell', '/cable|pulley/' => 'Cable', '/band/' => 'Resistance band',
+        '/body ?weight|\bbw\b|none|pull-?up bar|rings|dip/' => 'Bodyweight', '/machine|sled|hammer strength|selectorized/' => 'Machine'];
+    foreach ($map as $re => $e) if (preg_match($re, $t)) return $e;
+    return 'Other';
+}
+
+/** Lifting volume counts lifts and Olympic lifts; jumps, core, carries and mobility would only inflate it. */
+function kind_in_volume(?string $kind): bool { return in_array($kind ?? 'lift', ['lift', 'olympic'], true); }
 
 /** Brings an existing database up to SCHEMA_VERSION. Cheap when it's already current. */
 function ensure_schema(): void {
