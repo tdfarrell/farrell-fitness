@@ -1,11 +1,12 @@
-import { h, icon, fmt0, fmt1, todayISO, relDay, shortDate, openSheet, toast, confirmSheet, debounce } from '../ui.js';
+import { h, icon, fmt0, fmt1, todayISO, relDay, shortDate, openSheet, toast, confirmSheet, debounce, svgRing } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary, wUnit, liftDisplay, fromDisplayW, toDisplayW, imperial } from '../store.js';
 import { pageHead, loading, foldCard } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
 import { trainSwitch, renderCardio, renderCardioForm, renderProgress } from './cardio.js';
 import { gripHandle, makeSortable } from '../sortable.js';
-import { ring, unlockAudio, scheduleRestPush, cancelRestPush } from '../restalarm.js';
+import { ring, unlockAudio, scheduleRestPush, cancelRestPush, playTone, alarmSettings } from '../restalarm.js';
+import { fmtHold, parseHold, newHold, holdNow, advanceHold, stopHold, pauseHold, resumeHold, skipLead, extendHold } from '../hold.js';
 
 const ACTIVE_KEY = 'ff_active_workout_v1';
 const histCache = new Map();
@@ -105,19 +106,42 @@ function chipGroup(options, selected, { multi = false, label, onChange }) {
   return box;
 }
 
+const HOLDS = [20, 30, 45, 60, 90];
+export const isTimed = (ex) => ex?.measure === 'time';
+/** "0:45" or "0:52 at +25 lb". */
+const holdText = (s, short = false) => `${fmtHold(s.duration_s) || '-'}${s.weight_kg ? ` at +${liftDisplay(s.weight_kg)}${short ? '' : ` ${wUnit()}`}` : ''}`;
+
 function editExercise(ex, onDone) {
-  let equipment = ex?.equipment || null, kind = ex?.kind || 'lift';
+  let equipment = ex?.equipment || null, kind = ex?.kind || 'lift', measure = ex?.measure || 'reps', perSide = !!ex?.per_side;
+  let holdChoice = ex?.hold_s == null ? '' : HOLDS.includes(ex.hold_s) ? String(ex.hold_s) : 'other';
   const muscles = ex?.muscle && !MUSCLES.includes(ex.muscle) ? [ex.muscle, ...MUSCLES] : MUSCLES;
   const kindList = h('div', { class: 'list', role: 'radiogroup', 'aria-label': 'Type' }, KINDS.map(([k, n, d]) => h('label', { class: 'set-row-line' },
     h('input', { type: 'radio', name: 'ex-kind', class: 'radio', checked: kind === k, onchange: () => { kind = k; } }),
     h('span', { class: 'main' }, h('span', { class: 'title' }, n), h('span', { class: 'small muted' }, d)))));
+  // Reps or time. Timed exercises get a usual hold (it fills new sets) and can be held on each side.
+  const otherIn = h('input', { class: 'input', id: 'ex-hold', inputmode: 'numeric', placeholder: 'Like 1:15', 'aria-label': 'Usual hold, minutes and seconds',
+    value: holdChoice === 'other' ? fmtHold(ex.hold_s) : '', hidden: holdChoice !== 'other' });
+  const timeBox = h('div', { class: 'stack', style: { gap: '12px' }, hidden: measure !== 'time' },
+    h('p', { class: 'small muted', style: { margin: 0 } }, 'Each set is a timed hold. The workout log gets a timer for it.'),
+    h('div', { class: 'field' }, h('span', null, 'Usual hold'),
+      chipGroup([...HOLDS.map(x => [String(x), fmtHold(x)]), ['other', 'Other']], holdChoice, { label: 'Usual hold', onChange: (v) => { holdChoice = v; otherIn.hidden = v !== 'other'; if (v === 'other') otherIn.focus(); } }),
+      otherIn),
+    h('label', { class: 'set-row-line' },
+      h('span', { class: 'main' }, h('span', { class: 'title' }, 'Each side'), h('span', { class: 'small muted' }, 'Side plank, single-leg holds. Times left, then right')),
+      h('input', { type: 'checkbox', class: 'radio', checked: perSide, onchange: (e) => { perSide = e.target.checked; } })));
+  const seg = h('div', { class: 'segmented big', role: 'radiogroup', 'aria-label': 'Track sets by' });
+  const drawSeg = () => seg.replaceChildren(...[['reps', 'Reps'], ['time', 'Time']].map(([k, l]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(measure === k),
+    onclick: () => { measure = k; drawSeg(); timeBox.hidden = measure !== 'time'; } }, l)));
+  drawSeg();
   const s = openSheet({
     title: ex ? 'Edit exercise' : 'New exercise',
     tall: true,
     body: h('form', { class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
       const f = e.target;
-      const r = await post('exercises/save', { id: ex?.id, name: f.querySelector('#ex-name').value, muscle: f.querySelector('#ex-m').value, equipment, kind });
+      const hold_s = measure !== 'time' ? null : holdChoice === 'other' ? parseHold(otherIn.value) : holdChoice ? +holdChoice : null;
+      if (measure === 'time' && holdChoice === 'other' && otherIn.value.trim() && !hold_s) { toast('Enter the hold like 1:15', 'error'); otherIn.focus(); return; }
+      const r = await post('exercises/save', { id: ex?.id, name: f.querySelector('#ex-name').value, muscle: f.querySelector('#ex-m').value, equipment, kind, measure, hold_s, per_side: measure === 'time' && perSide });
       s.close(); toast('Exercise saved'); onDone?.(r.exercise);
     } },
       h('label', { class: 'field', for: 'ex-name' }, 'Name', h('input', { id: 'ex-name', required: true, value: ex?.name || '' })),
@@ -126,6 +150,7 @@ function editExercise(ex, onDone) {
       h('div', { class: 'field' }, h('span', null, 'Equipment'),
         chipGroup(EQUIPMENT.map(e => [e, e]), equipment, { label: 'Equipment', onChange: (v) => { equipment = v; } })),
       h('div', { class: 'field' }, h('span', null, 'Type'), kindList),
+      h('div', { class: 'measure-box stack' }, h('span', { class: 'field-label' }, 'Track sets by'), seg, timeBox),
       h('button', { class: 'btn primary block', type: 'submit' }, 'Save exercise'),
       ex ? h('button', { class: 'btn block danger', type: 'button', onclick: async () => {
         if (!(await confirmSheet('Delete exercise?', 'It disappears from pickers. Past workouts keep it.'))) return;
@@ -160,8 +185,9 @@ function editRoutine(r, exs, onDone) {
   // Each exercise with its planned sets in display units. No sets planned means the workout fills them from last time.
   const items = (r?.exercise_ids || []).map((id, i) => ({
     id, open: false,
-    sets: (r?.plan?.[i]?.sets || []).map(s => ({ w: s.weight_kg == null ? '' : liftDisplay(s.weight_kg), r: s.reps == null ? '' : String(s.reps), warmup: !!s.warmup })),
+    sets: (r?.plan?.[i]?.sets || []).map(s => ({ w: s.weight_kg == null ? '' : liftDisplay(s.weight_kg), r: s.reps == null ? '' : String(s.reps), t: fmtHold(s.duration_s), warmup: !!s.warmup })),
   }));
+  const timed = (it) => isTimed(byId[it.id]);
   openSheet({
     title: r ? 'Edit routine' : 'New routine',
     tall: true,
@@ -172,6 +198,10 @@ function editRoutine(r, exs, onDone) {
       const summary = (it) => {
         const work = it.sets.filter(s => !s.warmup);
         if (!work.length) return 'Sets from last time';
+        if (timed(it)) {
+          const ts = [...new Set(work.map(s => s.t || '-'))], w = workOf(it);
+          return `${work.length} × ${ts.length === 1 ? ts[0] : ts.join('/')}${w ? ` at +${w} ${wUnit()}` : ''}${byId[it.id]?.per_side ? ' each side' : ''}`;
+        }
         const reps = [...new Set(work.map(s => s.r || '-'))];
         const w = workOf(it);
         const warm = it.sets.length - work.length;
@@ -196,7 +226,20 @@ function editRoutine(r, exs, onDone) {
           ex?.equipment ? h('span', { class: 'tag primary' }, ex.equipment) : null,
           h('button', { class: 'icon-btn', 'aria-label': `Remove ${name}`, onclick: () => { items.splice(i, 1); draw(); } }, icon('close', 18)));
         const body = [];
-        if (it.open) {
+        if (it.open && timed(it)) {
+          let n = 0;
+          body.push(h('div', { class: 'plan-grid head' }, h('span', null, 'Set'), h('span', null, 'Hold'), h('span', null, `Added ${wUnit()}`), h('span')));
+          it.sets.forEach((s, si) => {
+            const label = String(++n);
+            const tIn = h('input', { inputmode: 'numeric', value: s.t, placeholder: fmtHold(ex?.hold_s) || '0:45', 'aria-label': `Set ${label} hold`, oninput: (e) => { s.t = e.target.value; },
+              onblur: (e) => { const v = parseHold(e.target.value); if (v) { s.t = fmtHold(v); e.target.value = s.t; } } });
+            const wIn = h('input', { inputmode: 'decimal', value: s.w, placeholder: 'None', 'aria-label': `Set ${label} added weight in ${wUnit()}`, oninput: (e) => { s.w = e.target.value; } });
+            body.push(h('div', { class: 'plan-grid' }, h('span', { class: 'set-n' }, label), tIn, wIn,
+              h('button', { class: 'icon-btn', 'aria-label': `Remove set ${label}`, onclick: () => { it.sets.splice(si, 1); draw(); } }, icon('close', 16))));
+          });
+          body.push(h('span', { class: 'tiny muted' }, 'Type 45 for 0:45, or 130 for 1:30.'));
+          body.push(h('button', { class: 'btn sm dashed', onclick: () => { const last = it.sets[it.sets.length - 1]; it.sets.push({ t: last?.t || fmtHold(ex?.hold_s), w: last?.w || '', r: '', warmup: false }); draw(); } }, 'Add set'));
+        } else if (it.open) {
           let n = 0;
           body.push(h('div', { class: 'plan-grid head' }, h('span', null, 'Set'), h('span', null, wUnit()), h('span', null, 'Reps'), h('span')));
           it.sets.forEach((s, si) => {
@@ -212,7 +255,7 @@ function editRoutine(r, exs, onDone) {
             h('button', { class: 'btn sm dashed', onclick: () => { const firstWork = it.sets.findIndex(x => !x.warmup); it.sets.splice(firstWork < 0 ? it.sets.length : firstWork, 0, { w: '', r: '', warmup: true }); draw(); } }, 'Add warm-up')));
           if (workOf(it) && !it.sets.some(x => x.warmup)) body.push(h('button', { class: 'btn sm soft', onclick: () => addRamp(it) }, icon('ramp', 16), `Add warm-ups from ${workOf(it)} ${wUnit()}`));
           else if (workOf(it)) body.push(h('span', { class: 'tiny muted' }, `Warm-ups ramp ${BAR_KG[ex?.equipment] ? 'from the bar: ' : ''}40%, 60%, 80% of ${workOf(it)}, rounded to ${imperial() ? '5 lb' : '2.5 kg'}.`));
-        } else if (workOf(it) && !it.sets.some(x => x.warmup)) {
+        } else if (!timed(it) && workOf(it) && !it.sets.some(x => x.warmup)) {
           body.push(h('button', { class: 'btn sm soft', onclick: () => addRamp(it) }, icon('ramp', 16), `Add warm-ups from ${workOf(it)} ${wUnit()}`));
         }
         return h('section', { class: 'ritem sort-row', 'data-key': String(i), 'data-label': name }, head, ...body);
@@ -226,8 +269,10 @@ function editRoutine(r, exs, onDone) {
         h('button', { class: 'btn block', onclick: () => pickExercise((ex) => { items.push({ id: ex.id, open: false, sets: [] }); draw(); }) }, 'Add exercise'),
         h('button', { class: 'btn primary block', onclick: async () => {
           if (!nameIn.value.trim()) { toast('Name the routine', 'error'); return; }
-          const plan = items.some(it => it.sets.length) ? items.map(it => ({ sets: it.sets.filter(s => s.w !== '' || s.r !== '').map(s => ({
-            weight_kg: s.w === '' ? null : fromDisplayW(String(s.w).replace(',', '.')), reps: s.r === '' ? null : parseInt(s.r, 10), warmup: s.warmup })) })) : null;
+          const kgOf = (v) => (v === '' || v == null ? null : fromDisplayW(String(v).replace(',', '.')));
+          const plan = items.some(it => it.sets.length) ? items.map(it => ({ sets: timed(it)
+            ? it.sets.filter(s => parseHold(s.t) || s.w !== '').map(s => ({ duration_s: parseHold(s.t), weight_kg: kgOf(s.w), reps: null, warmup: false }))
+            : it.sets.filter(s => s.w !== '' || s.r !== '').map(s => ({ weight_kg: kgOf(s.w), reps: s.r === '' ? null : parseInt(s.r, 10), warmup: s.warmup })) })) : null;
           await post('routines/save', { id: r?.id, name: nameIn.value, exercise_ids: items.map(it => it.id), plan });
           sheet.close(); toast('Routine saved'); onDone?.();
         } }, 'Save routine'),
@@ -257,7 +302,9 @@ function pickExercise(onPick) {
           chipGroup(EQUIPMENT.map(e => [e, e]), pickFilter.equip, { multi: true, label: 'Equipment', onChange: draw })),
         h('div', { class: 'field' }, h('span', { class: 'chip-label' }, 'Type'),
           chipGroup([['all', 'All'], ...KINDS.map(([k, n]) => [k, n])], pickFilter.kind, { label: 'Type', onChange: (v) => { pickFilter.kind = v; draw(); } })));
-      const lastText = (e) => (e.last ? `Last: ${e.last.weight_kg ? `${liftDisplay(e.last.weight_kg)} × ` : ''}${e.last.reps ?? '-'}${e.last.weight_kg ? '' : ' reps'}, ${shortDate(e.last.date).split(', ')[1]}` : 'Never done');
+      const lastText = (e) => (!e.last ? 'Never done' : isTimed(e)
+        ? `Last: ${fmtHold(e.last.duration_s) || '-'}${e.last.weight_kg ? ` at +${liftDisplay(e.last.weight_kg)}` : ''}, ${shortDate(e.last.date).split(', ')[1]}`
+        : `Last: ${e.last.weight_kg ? `${liftDisplay(e.last.weight_kg)} × ` : ''}${e.last.reps ?? '-'}${e.last.weight_kg ? '' : ' reps'}, ${shortDate(e.last.date).split(', ')[1]}`);
       function draw() {
         const t = q.value.trim().toLowerCase();
         const hits = all.filter(e => (!t || e.name.toLowerCase().includes(t) || (e.muscle || '').toLowerCase().includes(t))
@@ -296,6 +343,25 @@ export async function attachedStretch(match, when) {
   } catch { return null; }
 }
 
+/** A workout entry: what the log needs to know about the exercise, and its sets. */
+function entryFor(def, sets, weighted = false) {
+  return { exercise_id: def.id, name: def.name, measure: def.measure || 'reps', per_side: !!def.per_side, hold_s: def.hold_s ?? null, kind: def.kind || 'lift', weighted: !!weighted, sets };
+}
+const blankSet = (o = {}) => ({ weight: '', reps: '', time: '', side: null, warmup: false, done: false, ...o });
+/** n empty sets. Each-side exercises get a left and a right row for every set. */
+function blankSets(def, n) {
+  return isTimed(def) && def.per_side ? Array.from({ length: n }, () => [blankSet({ side: 'L' }), blankSet({ side: 'R' })]).flat() : Array.from({ length: n }, () => blankSet());
+}
+/** Timed exercises show a weight box when weight was used last time, and always for carries. */
+const wantsWeight = (def, hist) => def.kind === 'carry' || (hist[0]?.sets || []).some(s => s.weight_kg);
+/** A new entry with as many sets as last time (at least `min`), filled from history as placeholders. */
+async function newEntry(def, min = 3) {
+  const hist = await history(def.id);
+  const work = (hist[0]?.sets || []).filter(s => !s.warmup);
+  const n = Math.max(min, isTimed(def) && def.per_side ? Math.ceil(work.length / 2) : work.length);
+  return entryFor(def, blankSets(def, n), isTimed(def) && wantsWeight(def, hist));
+}
+
 async function startWorkout(root, routineId, { noWarm = false, cooldown = null } = {}) {
   // A warm-up attached to this routine is offered first.
   if (routineId && !noWarm && !readActive()) {
@@ -323,12 +389,14 @@ async function startWorkout(root, routineId, { noWarm = false, cooldown = null }
   }
   const entries = await Promise.all(ids.map(async (id, i) => {
     // Planned sets come in filled; otherwise as many as last time, filled from history as placeholders.
-    if (plan[i]?.length) return { exercise_id: id, name: byId[id].name, sets: plan[i].map(s => ({ weight: s.weight_kg == null ? '' : liftDisplay(s.weight_kg), reps: s.reps == null ? '' : String(s.reps), warmup: !!s.warmup, done: false })) };
-    const hist = await history(id);
-    const last = hist[0]?.sets || [];
-    const working = last.filter(s => !s.warmup);
-    const n = Math.max(3, working.length);
-    return { exercise_id: id, name: byId[id].name, sets: Array.from({ length: n }, () => ({ weight: '', reps: '', warmup: false, done: false })) };
+    const def = byId[id];
+    if (!plan[i]?.length) return newEntry(def);
+    const kg = (s) => (s.weight_kg == null ? '' : liftDisplay(s.weight_kg));
+    if (isTimed(def)) {
+      const sets = plan[i].flatMap(s => { const base = { time: fmtHold(s.duration_s), weight: kg(s) }; return def.per_side ? [blankSet({ ...base, side: 'L' }), blankSet({ ...base, side: 'R' })] : [blankSet(base)]; });
+      return entryFor(def, sets, plan[i].some(s => s.weight_kg) || wantsWeight(def, await history(id)));
+    }
+    return entryFor(def, plan[i].map(s => blankSet({ weight: kg(s), reps: s.reps == null ? '' : String(s.reps), warmup: !!s.warmup })));
   }));
   writeActive({ name, date: todayISO(), started_at: Date.now(), exercises: entries, cooldown_id: cooldown ? +cooldown : null });
   location.hash = '#/train/active';
@@ -339,11 +407,21 @@ let restEnds = 0;
 let restOver = false;     // the orange "Rest over" bar is showing
 let restPushOff = false;  // the locked-phone push was cancelled because the app is on screen
 let reschedule = null;
+let holdInt = null;       // the hold timer's tick
+let holdWake = null;      // keeps the screen on while a hold runs
 
 function renderActive(root) {
   const w = readActive();
   if (!w) { location.hash = '#/train'; return; }
   const save = () => writeActive(w);
+  // Workouts started before timed sets existed: fill in what each exercise is.
+  if (w.exercises.some(ex => ex.measure === undefined)) {
+    exercises().then(all => {
+      const by = Object.fromEntries(all.map(e => [e.id, e]));
+      w.exercises.forEach(ex => { if (ex.measure === undefined) Object.assign(ex, { measure: 'reps', per_side: false, hold_s: by[ex.exercise_id]?.hold_s ?? null, kind: by[ex.exercise_id]?.kind || 'lift', weighted: false }); });
+      save();
+    });
+  }
   const restSecs = state.settings?.rest_seconds || 120;
 
   const minutes = () => Math.max(1, Math.round((Date.now() - w.started_at) / 60000));
@@ -355,12 +433,16 @@ function renderActive(root) {
 
   const restBox = h('div', { class: 'rest', hidden: true, role: 'timer', 'aria-live': 'off' });
   // The next set to do, for the "Rest over" bar and the locked-phone notification.
-  const nextUp = () => {
-    for (const ex of w.exercises) {
+  const nextUp = (skip = new Set()) => {
+    for (const [xi, ex] of w.exercises.entries()) {
       let n = 0;
-      for (const s of ex.sets) {
-        if (!s.warmup) n++;
-        if (s.done) continue;
+      for (const [si, s] of ex.sets.entries()) {
+        if (!s.warmup && s.side !== 'R') n++;
+        if (s.done || skip.has(`${xi}:${si}`)) continue;
+        if (isTimed(ex)) {
+          const t = s.time || s._phT || fmtHold(ex.hold_s), wt = ex.weighted ? (s.weight || s._phW) : '';
+          return `${ex.name} set ${n}${s.side === 'L' ? ', left' : s.side === 'R' ? ', right' : ''}${t ? `, ${t}` : ''}${wt ? ` at +${wt}` : ''}`;
+        }
         const wt = s.weight || s._phW, reps = s.reps || s._phR;
         return `${ex.name} ${s.warmup ? 'warm-up' : `set ${n}`}${wt ? `, ${wt}${reps ? ` × ${reps}` : ''}` : reps ? `, ${reps} reps` : ''}`;
       }
@@ -420,12 +502,276 @@ function renderActive(root) {
   if (restEnds > Date.now() || restOver) startTicking();
   else if (restEnds) { restEnds = 0; } // ended while you were on another screen
   // Back from another app or the lock screen: catch up at once instead of on the next tick.
-  const onVisible = () => { if (document.visibilityState === 'visible' && (restEnds || restOver)) drawRest(); };
+  const onVisible = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (restEnds || restOver) drawRest();
+    if (w.hold) { holdWake = null; keepAwake(true); tickHold(); }
+  };
   document.addEventListener('visibilitychange', onVisible);
 
   let effOpen = null; // which set's effort picker is open, as 'exercise:set'
   const cards = h('div', { class: 'stack' });
-  const drawCards = () => cards.replaceChildren(...w.exercises.map((ex, xi) => exerciseCard(ex, xi)));
+  const drawCards = () => { holdUI.inline = null; cards.replaceChildren(...w.exercises.map((ex, xi) => (isTimed(ex) ? timedCard(ex, xi) : exerciseCard(ex, xi)))); paintHold(); };
+
+  /* ----- timed sets and the hold timer ----- */
+  const holdUI = { inline: null, full: null };
+  const dropHold = () => { if (!w.hold) return; w.hold = null; clearInterval(holdInt); holdInt = null; clearTimeout(reschedule); cancelRestPush(); keepAwake(false); holdUI.full?.root.remove(); holdUI.full = null; };
+  const setLabels = (ex) => { let n = 0; return ex.sets.map(s => (s.warmup ? 'W' : `${s.side === 'R' && n ? n : ++n}${s.side || ''}`)); };
+  const rowOf = (hh, side) => (hh.sides && side === 'R' ? hh.si + 1 : hh.si);
+  const holdTarget = (ex, s) => parseHold(s.time) || parseHold(s._phT) || ex.hold_s || null;
+  const keepAwake = async (on) => {
+    try { if (on && !holdWake) holdWake = await navigator.wakeLock?.request('screen'); else if (!on && holdWake) { const l = holdWake; holdWake = null; await l.release(); } } catch { holdWake = null; }
+  };
+  const beep = () => { const a = alarmSettings(); if (a.sound && !w.rest_muted) playTone('beeps', a.volume); if (a.vibrate) navigator.vibrate?.(120); };
+  // The locked-phone notification for the moment the target is reached.
+  const holdPush = () => {
+    const hh = w.hold;
+    clearTimeout(reschedule);
+    if (!hh || hh.pauseAt || !hh.target) return;
+    const st = holdNow(hh, Date.now());
+    if (st.phase === 'hold' && st.over) return;
+    const secs = st.phase === 'hold' ? st.left : st.left + hh.target;
+    if (secs < 3) return;
+    const ex = w.exercises[hh.xi];
+    hh.pushOff = false;
+    reschedule = setTimeout(() => scheduleRestPush(secs - 0.4, { title: `${fmtHold(hh.target)} hold done`,
+      body: hh.sides && hh.side === 'L' ? `${ex.name}: switch to the right side.` : `${ex.name}. Tap to go back to ${w.name}.` }), 400);
+  };
+  const endHold = (logged) => {
+    w.hold = null; save();
+    clearInterval(holdInt); holdInt = null; keepAwake(false); closeFull();
+    clearTimeout(reschedule); cancelRestPush();
+    drawCards();
+    if (logged) startRest();
+  };
+  const handleHold = (ev) => {
+    const hh = w.hold;
+    if (!hh) return;
+    const ex = w.exercises[hh.xi];
+    let redraw = false;
+    for (const e of ev) {
+      if (e.type === 'go') beep();
+      else if (e.type === 'target') ring(w.rest_muted);
+      else if (e.type === 'log') {
+        const s = ex?.sets[rowOf(hh, e.side)];
+        if (s) { s.time = fmtHold(e.sec); s.done = true; if (ex.weighted && !s.weight && s._phW) s.weight = s._phW; }
+        redraw = true;
+        if (hh.sides && e.side === 'L') holdPush();
+      } else if (e.type === 'done' || e.type === 'cancel') { endHold(e.type === 'done'); return; }
+    }
+    save();
+    if (redraw) drawCards();
+  };
+  const tickHold = () => {
+    const hh = w.hold;
+    if (!hh) { clearInterval(holdInt); holdInt = null; return; }
+    const now = Date.now();
+    const ev = advanceHold(hh, now);
+    if (ev.length) { handleHold(ev); if (!w.hold) return; }
+    // On screen near the target: the tone plays here, so the notification isn't needed.
+    const st = holdNow(hh, now);
+    if (!hh.pushOff && hh.target && document.visibilityState === 'visible' && st.phase === 'hold' && st.left != null && st.left <= 2) { hh.pushOff = true; clearTimeout(reschedule); cancelRestPush(); }
+    paintHold(now);
+  };
+  const runHold = () => { clearInterval(holdInt); holdInt = setInterval(tickHold, 250); keepAwake(true); tickHold(); };
+  const startHold = (xi, si) => {
+    if (w.hold) { w.hold = null; clearInterval(holdInt); holdInt = null; }
+    const ex = w.exercises[xi], s = ex.sets[si];
+    const sides = !!(ex.per_side && s.side === 'L' && ex.sets[si + 1]?.side === 'R');
+    unlockAudio(); stopRest(); drawRest();
+    w.hold = { xi, si, full: holdUI.full != null, ...newHold({ now: Date.now(), target: holdTarget(ex, s), sides, side: s.side || null }) };
+    save(); drawCards(); runHold(); holdPush();
+  };
+  const holdPauseToggle = () => {
+    const hh = w.hold; if (!hh) return;
+    const now = Date.now();
+    if (hh.pauseAt) { resumeHold(hh, now); holdPush(); } else { pauseHold(hh, now); clearTimeout(reschedule); cancelRestPush(); }
+    save(); drawCards();
+  };
+  const holdExtend = () => { const hh = w.hold; if (!hh) return; extendHold(hh, Date.now()); save(); holdPush(); paintHold(); };
+  /** Start now during the count-in or switch; otherwise stop and log this side. */
+  const holdMain = () => {
+    const hh = w.hold; if (!hh) return;
+    const now = Date.now();
+    if (holdNow(hh, now).phase !== 'hold') { skipLead(hh, now); save(); holdPush(); tickHold(); return; }
+    handleHold(stopHold(hh, now));
+    if (w.hold) { save(); drawCards(); holdPush(); }
+  };
+  const holdStop = () => { const hh = w.hold; if (!hh) return; handleHold(stopHold(hh, Date.now())); if (w.hold) { save(); drawCards(); holdPush(); } };
+
+  const holdPanel = () => {
+    const num = h('span', { class: 'hold-num' }), sub = h('span', { class: 'hold-sub' }), title = h('span', { class: 'hold-title' });
+    const fill = h('span', { class: 'hold-fill' });
+    const pause = h('button', { class: 'btn sm outline-light', onclick: holdPauseToggle });
+    const main = h('button', { class: 'btn sm light', onclick: holdMain });
+    const root = h('div', { class: 'hold-box', role: 'timer', 'aria-live': 'off' },
+      h('div', { class: 'hold-top' }, title, h('span', { class: 'hold-icons' },
+        h('button', { class: 'icon-btn hold-ic', 'aria-label': 'Full screen timer', onclick: openFull }, icon('expand', 18)),
+        h('button', { class: 'icon-btn hold-ic', 'aria-label': 'Cancel the timer', onclick: () => endHold(false) }, icon('close', 18)))),
+      h('div', { class: 'hold-read' }, num, sub),
+      h('div', { class: 'hold-bar', 'aria-hidden': 'true' }, fill),
+      h('div', { class: 'hold-ctl' }, pause, h('button', { class: 'btn sm outline-light', onclick: holdExtend }, '+15 s'), main));
+    return { root, num, sub, title, pause, main, setFrac: (f) => { fill.style.width = `${(Math.max(0, Math.min(1, f)) * 100).toFixed(1)}%`; } };
+  };
+  const C = 2 * Math.PI * 110;
+  const buildFull = () => {
+    closeFull();
+    const hh = w.hold; if (!hh) return;
+    const ex = w.exercises[hh.xi];
+    const svg = svgRing(C, 0, false), arc = svg.lastChild;
+    const num = h('b'), sub = h('span'), title = h('span', { style: { fontWeight: 600 } }), pill = h('span', { class: 'run-side' }), nextB = h('b');
+    const statT = h('b'), statL = h('b'), statB = h('b');
+    const muteB = h('button', { class: 'icon-btn run-mute', onclick: () => { w.rest_muted = !w.rest_muted; save(); paintHold(); } });
+    const pause = h('button', { class: 'btn outline-light', onclick: holdPauseToggle });
+    const main = h('button', { class: 'btn light', onclick: holdMain });
+    const root = h('div', { class: 'stretch-run hold-run', role: 'dialog', 'aria-label': `${ex.name} hold timer` },
+      h('div', { class: 'run-top' },
+        h('button', { class: 'icon-btn run-mute', 'aria-label': 'Back to the workout', onclick: () => { closeFull(); } }, icon('shrink', 20)),
+        h('span', { class: 'run-title' }, h('span', { class: 'tiny' }, w.name), title), muteB),
+      h('div', { class: 'run-name' }, h('h1', null, ex.name), pill),
+      h('div', { class: 'run-ring' }, svg, h('span', { class: 'run-num' }, num, sub)),
+      h('div', { class: 'hold-stats' },
+        h('span', null, statT, h('span', null, 'target')), h('span', null, statL, h('span', null, 'last time')), h('span', null, statB, h('span', null, 'best hold'))),
+      h('div', { class: 'run-next' }, h('span', { class: 'tiny' }, 'Up next'), nextB),
+      h('div', { class: 'run-ctl' }, pause, h('button', { class: 'btn outline-light', onclick: holdExtend }, '+15 s'), main));
+    document.body.append(root);
+    history(ex.exercise_id).then(hist => { const b = Math.max(0, ...hist.flatMap(x => x.sets.map(s => s.duration_s || 0))); statB.textContent = b ? fmtHold(b) : '-'; });
+    holdUI.full = { root, num, sub, title, pause, main, pill, nextB, statT, statL, muteB, full: true, setFrac: (f) => arc.setAttribute('stroke-dashoffset', (C * (1 - Math.max(0, Math.min(1, f)))).toFixed(1)), arc };
+    hh.full = true; save();
+    paintHold();
+  };
+  const openFull = () => { if (w.hold) buildFull(); };
+  const closeFull = () => { holdUI.full?.root.remove(); holdUI.full = null; if (w.hold && w.hold.full) { w.hold.full = false; save(); } };
+
+  /** Writes the timer's state into the inline panel and the full-screen view. */
+  const paintHold = (now = Date.now()) => {
+    const hh = w.hold;
+    if (!hh) return;
+    const ex = w.exercises[hh.xi];
+    if (!ex) return;
+    const st = holdNow(hh, now);
+    const labels = setLabels(ex);
+    const s = ex.sets[rowOf(hh, hh.side)];
+    const sideName = hh.side === 'L' ? 'left side' : hh.side === 'R' ? 'right side' : '';
+    let num, sub, frac, over = false;
+    if (st.phase !== 'hold') {
+      num = String(Math.max(1, Math.ceil(st.left)));
+      sub = st.phase === 'switch' ? 'Switch to the right side' : 'Get into position';
+      frac = hh.lead ? 1 - st.left / hh.lead : 1;
+    } else if (hh.target && !st.over) {
+      num = fmtHold(Math.ceil(st.left)); sub = `left of ${fmtHold(hh.target)}`; frac = st.held / hh.target;
+    } else if (hh.target) {
+      num = fmtHold(Math.floor(st.held)); sub = `+${fmtHold(Math.floor(st.held - hh.target))} past ${fmtHold(hh.target)}`; frac = 1; over = true;
+    } else { num = fmtHold(Math.floor(st.held)); sub = 'held so far'; frac = 0; }
+    if (hh.pauseAt) sub = `Paused. ${sub}`;
+    const stopLabel = st.phase !== 'hold' ? 'Start now' : hh.sides && hh.side === 'L' ? 'Log, switch sides' : 'Stop and log';
+    for (const ui of [holdUI.inline, holdUI.full]) {
+      if (!ui) continue;
+      ui.num.textContent = num; ui.sub.textContent = sub; ui.setFrac(frac);
+      ui.root.classList.toggle('over', over);
+      ui.root.classList.toggle('lead', st.phase !== 'hold');
+      ui.pause.textContent = hh.pauseAt ? 'Resume' : 'Pause';
+      ui.main.textContent = ui.full && st.phase === 'hold' && !(hh.sides && hh.side === 'L') ? `Stop and log ${fmtHold(Math.floor(st.held))}` : stopLabel;
+      const setNo = (labels[rowOf(hh, hh.side)] || '').replace(/[LR]$/, '');
+      ui.title.textContent = `Set ${setNo} hold${sideName && !ui.full ? `, ${sideName}` : ''}`;
+      ui.root.setAttribute('aria-label', `${ex.name} set ${labels[hh.si]} hold, ${num} ${sub}`);
+    }
+    const f = holdUI.full;
+    if (f) {
+      f.arc.setAttribute('stroke', st.phase !== 'hold' ? '#B8C6DC' : '#FF914D');
+      const pill = st.phase === 'countin' ? 'Get ready' : st.phase === 'switch' ? 'Switch sides' : over ? 'Target reached, keep going' : sideName ? sideName[0].toUpperCase() + sideName.slice(1) : '';
+      f.pill.textContent = pill; f.pill.hidden = !pill;
+      f.statT.textContent = hh.target ? fmtHold(hh.target) : '-';
+      f.statL.textContent = s?._phT || '-';
+      const skip = new Set([`${hh.xi}:${hh.si}`, `${hh.xi}:${rowOf(hh, 'R')}`]);
+      const nx = nextUp(skip);
+      f.nextB.textContent = hh.sides && hh.side === 'L' ? `Right side, after a ${5} s switch` : `Rest ${fmtHold(restSecs)}${nx ? `, then ${nx}` : ''}`;
+      f.muteB.replaceChildren(icon(w.rest_muted ? 'muted' : 'sound', 20));
+      f.muteB.setAttribute('aria-label', w.rest_muted ? 'Sound off' : 'Sound on'); f.muteB.setAttribute('aria-pressed', String(!w.rest_muted));
+    }
+  };
+
+  const timedCard = (ex, xi) => {
+    const card = h('section', { class: 'card', 'aria-label': ex.name, style: { gap: '6px' } });
+    const best = h('span', { class: 'small muted' });
+    const labels = setLabels(ex);
+    const lastCells = [];
+    history(ex.exercise_id).then(hist => {
+      const b = Math.max(0, ...hist.flatMap(x => x.sets.filter(s => !s.warmup).map(s => s.duration_s || 0)));
+      if (b) best.textContent = `Best hold ${fmtHold(b)}`;
+      const lastWork = (hist[0]?.sets || []).filter(s => !s.warmup);
+      let ki = 0;
+      const rowsEls = card.querySelectorAll('.set-row');
+      ex.sets.forEach((s, i) => {
+        const src = s.warmup ? null : lastWork[ki++];
+        if (lastCells[i]) lastCells[i].textContent = src ? `${fmtHold(src.duration_s) || '-'}${src.weight_kg && !ex.weighted ? ` +${liftDisplay(src.weight_kg)}` : ''}` : '-';
+        if (src && !s.done) {
+          s._phT = fmtHold(src.duration_s); s._phW = liftDisplay(src.weight_kg);
+          const r = rowsEls[i];
+          if (r) { if (s._phT) r.querySelector('.t-in').placeholder = s._phT; const wi = r.querySelector('.w-in'); if (wi && s._phW) wi.placeholder = s._phW; }
+        }
+      });
+      paintHold();
+    });
+    const hh = w.hold && w.hold.xi === xi ? w.hold : null;
+    const rows = ex.sets.flatMap((s, si) => {
+      const label = labels[si];
+      const lastCell = h('span', { class: 'small muted' }, '-');
+      lastCells[si] = lastCell;
+      const tIn = h('input', { class: 't-in', inputmode: 'numeric', value: s.time, placeholder: s._phT || fmtHold(ex.hold_s) || '', 'aria-label': `Set ${label} time` });
+      tIn.addEventListener('input', () => { s.time = tIn.value; save(); });
+      tIn.addEventListener('blur', () => { const v = parseHold(tIn.value); if (v) { s.time = fmtHold(v); tIn.value = s.time; save(); } });
+      const wIn = ex.weighted ? h('input', { class: 'w-in', inputmode: 'decimal', value: s.weight, placeholder: s._phW || '', 'aria-label': `Set ${label} added weight in ${wUnit()}` }) : null;
+      wIn?.addEventListener('input', () => { s.weight = wIn.value; save(); });
+      const key = `${xi}:${si}`;
+      const effBtn = s.warmup ? h('span', { class: 'eff-none', 'aria-hidden': 'true' }, '')
+        : h('button', { class: 'eff-btn' + (s.rpe ? ' set' : ''), 'aria-expanded': String(effOpen === key), 'aria-label': s.rpe ? `Set ${label} effort ${s.rpe}, change` : `Set ${label} effort`,
+          onclick: () => { effOpen = effOpen === key ? null : key; drawCards(); } }, s.rpe ? String(s.rpe) : '–');
+      const effRow = effOpen === key && !s.warmup ? h('div', { class: 'eff-pick', role: 'group', 'aria-label': `Set ${label} effort` },
+        h('span', { class: 'small', style: { fontWeight: 600 } }, `Set ${label} effort`),
+        h('div', { class: 'eff-scale' }, Array.from({ length: 10 }, (_, k) => k + 1).map(v => h('button', { 'aria-pressed': String(s.rpe === v),
+          onclick: () => { s.rpe = s.rpe === v ? null : v; save(); effOpen = null; drawCards(); } }, String(v)))),
+        h('div', { class: 'eff-anchors tiny muted' }, h('span', null, '1 easy'), h('span', null, '8 nearly done'), h('span', null, '10 nothing left'))) : null;
+      const running = !!hh && rowOf(hh, hh.side) === si;
+      const timerBtn = h('button', { class: 'timer-btn' + (running ? ' on' : ''),
+        'aria-label': running ? (hh.pauseAt ? `Resume set ${label} timer` : `Pause set ${label} timer`) : `Start set ${label} timer`,
+        onclick: () => (running ? holdPauseToggle() : startHold(xi, si)) }, icon(running && !hh.pauseAt ? 'pause' : 'play', 18));
+      const doneBtn = h('button', { class: 'done-btn', 'aria-pressed': String(!!s.done), 'aria-label': s.done ? `Set ${label} done` : `Mark set ${label} done`, onclick: () => {
+        if (running) { holdStop(); return; }
+        if (!s.done) {
+          if (!parseHold(s.time)) s.time = s._phT || fmtHold(ex.hold_s) || s.time;
+          if (!parseHold(s.time)) { toast('Enter a time first', 'error'); return; }
+          if (ex.weighted && !s.weight && s._phW) s.weight = s._phW;
+        }
+        s.done = !s.done; save(); drawCards();
+        if (s.done) startRest();
+      } }, icon('check'));
+      const out = [h('div', { class: `set-grid tx${ex.weighted ? ' wt' : ''} set-row${s.done ? ' done' : ''}${running ? ' timing' : ''}` },
+        h('button', { class: 'set-n', 'aria-label': `Set ${label} options`, onclick: () => setMenu(ex, si) }, label),
+        lastCell, wIn, tIn, effBtn, timerBtn, doneBtn), effRow];
+      if (hh && rowOf(hh, 'R') === si) { holdUI.inline = holdPanel(); out.push(holdUI.inline.root); }
+      return out.filter(Boolean);
+    });
+    card.append(...[
+      h('div', { class: 'card-head', style: { alignItems: 'center' } },
+        h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 } }, h('h2', { style: { font: '600 18px var(--body)' } }, ex.name), best),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+          h('button', { class: 'btn sm wt-toggle', 'aria-pressed': String(!!ex.weighted), onclick: () => { ex.weighted = !ex.weighted; save(); drawCards(); } },
+            ex.weighted ? 'No weight' : [icon('plus', 14), 'Add weight']),
+          h('button', { class: 'icon-btn', 'aria-label': `Options for ${ex.name}`, onclick: () => exerciseMenu(xi) }, icon('more')))),
+      h('div', { class: `set-grid tx${ex.weighted ? ' wt' : ''} head` }, h('span', { style: { textAlign: 'center' } }, 'Set'), h('span', null, 'Last time'),
+        ex.weighted ? h('span', null, `+${wUnit()}`) : null, h('span', null, 'Time'), h('span', { style: { textAlign: 'center' } }, 'Effort'),
+        h('span', { style: { textAlign: 'center' } }, 'Timer'), h('span', { style: { textAlign: 'center' } }, 'Done')),
+      ...rows,
+      ex.per_side ? h('span', { class: 'tiny muted', style: { padding: '2px 4px' } }, 'The timer runs left, gives a 5 s switch, then runs right.') : null,
+      h('button', { class: 'btn sm dashed', style: { marginTop: '6px', borderStyle: 'dashed' }, onclick: () => {
+        const prev = ex.sets[ex.sets.length - 1];
+        const base = { time: prev?.time || '', weight: prev?.weight || '' };
+        ex.sets.push(...(ex.per_side ? [blankSet({ ...base, side: 'L' }), blankSet({ ...base, side: 'R' })] : [blankSet(base)]));
+        save(); drawCards();
+      } }, 'Add set')].filter(Boolean));
+    return card;
+  };
 
   const exerciseCard = (ex, xi) => {
     const card = h('section', { class: 'card', 'aria-label': ex.name, style: { gap: '6px' } });
@@ -492,14 +838,14 @@ function renderActive(root) {
     const s = ex.sets[si];
     const sh = openSheet({ title: 'Set options', body: h('div', { class: 'stack' },
       h('button', { class: 'btn block', onclick: () => { s.warmup = !s.warmup; save(); sh.close(); drawCards(); } }, s.warmup ? 'Make it a working set' : 'Mark as warm-up'),
-      h('button', { class: 'btn block danger', onclick: () => { ex.sets.splice(si, 1); save(); sh.close(); drawCards(); } }, 'Delete set')) });
+      h('button', { class: 'btn block danger', onclick: () => { if (w.hold && w.exercises[w.hold.xi] === ex) endHold(false); ex.sets.splice(si, 1); save(); sh.close(); drawCards(); } }, 'Delete set')) });
   };
   const exerciseMenu = (xi) => {
     const ex = w.exercises[xi];
     const sh = openSheet({ title: ex.name, body: h('div', { class: 'stack' },
       h('a', { class: 'btn block', href: `#/train/exercise/${ex.exercise_id}`, onclick: () => sh.close() }, 'History and progress'),
       w.exercises.length > 1 ? h('button', { class: 'btn block', onclick: () => { sh.close(); reorderSheet(); } }, 'Reorder exercises') : null,
-      ex.sets.some(s => s.warmup) ? null : h('button', { class: 'btn block', onclick: async () => {
+      ex.sets.some(s => s.warmup) || isTimed(ex) ? null : h('button', { class: 'btn block', onclick: async () => {
         sh.close();
         const work = Math.max(0, ...ex.sets.filter(s => !s.warmup).map(s => parseFloat(s.weight || s._phW) || 0));
         const all = await exercises();
@@ -508,8 +854,14 @@ function renderActive(root) {
         ex.sets.unshift(...ramp.map(r => ({ weight: String(r.w), reps: String(r.r), warmup: true, done: false })));
         save(); drawCards();
       } }, 'Add warm-ups'),
-      h('button', { class: 'btn block', onclick: () => { sh.close(); pickExercise((n) => { w.exercises[xi] = { exercise_id: n.id, name: n.name, sets: ex.sets.map(s => ({ ...s, done: false })) }; save(); drawCards(); }); } }, 'Replace exercise'),
-      h('button', { class: 'btn block danger', onclick: () => { w.exercises.splice(xi, 1); save(); sh.close(); drawCards(); } }, 'Remove exercise')) });
+      h('button', { class: 'btn block', onclick: () => { sh.close(); pickExercise(async (n) => {
+        if (w.hold?.xi === xi) endHold(false);
+        // Same kind of sets: keep them. Reps to time (or back): start fresh with as many sets.
+        const entry = !isTimed(n) && !isTimed(ex) ? entryFor(n, ex.sets.map(s => ({ ...s, done: false })))
+          : await newEntry(n, Math.max(1, ex.sets.filter(s => !s.warmup && s.side !== 'R').length));
+        w.exercises[xi] = entry; save(); drawCards();
+      }); } }, 'Replace exercise'),
+      h('button', { class: 'btn block danger', onclick: () => { if (w.hold?.xi === xi) endHold(false); else if (w.hold && w.hold.xi > xi) w.hold.xi--; w.exercises.splice(xi, 1); save(); sh.close(); drawCards(); } }, 'Remove exercise')) });
   };
 
   const reorderSheet = () => {
@@ -521,7 +873,7 @@ function renderActive(root) {
         const draw = () => list.replaceChildren(...w.exercises.map((ex, i) => h('div', { class: 'list-row sort-row', 'data-key': String(i), 'data-label': ex.name },
           gripHandle(ex.name),
           h('div', { class: 'main' }, h('span', { class: 'title' }, ex.name), h('span', { class: 'small muted' }, `${ex.sets.filter(s => s.done).length} of ${ex.sets.length} sets done`)))));
-        makeSortable(list, { onChange: (keys) => { w.exercises = keys.map(k => w.exercises[+k]); save(); draw(); } });
+        makeSortable(list, { onChange: (keys) => { if (w.hold) endHold(false); w.exercises = keys.map(k => w.exercises[+k]); save(); draw(); } });
         draw();
         sheet.body.append(h('p', { class: 'note small' }, 'Drag the handle to move an exercise.'), list, h('button', { class: 'btn primary block', onclick: () => sheet.close() }, 'Done'));
       },
@@ -531,6 +883,14 @@ function renderActive(root) {
   const collectSets = () => {
     const sets = [];
     w.exercises.forEach((ex) => ex.sets.forEach((s) => {
+      if (isTimed(ex)) {
+        // A timed set needs a time; added weight only counts when the weight box is showing.
+        const sec = parseHold(s.time);
+        if (!sec) return;
+        sets.push({ exercise_id: ex.exercise_id, position: sets.length, reps: null, duration_s: sec, side: s.side || null, warmup: s.warmup, rpe: s.warmup ? null : (s.rpe || null),
+          weight_kg: ex.weighted && s.weight !== '' && s.weight != null ? fromDisplayW(String(s.weight).replace(',', '.')) : null });
+        return;
+      }
       const reps = parseInt(s.reps || '', 10);
       if (!s.done && !reps) return;
       sets.push({ exercise_id: ex.exercise_id, position: sets.length, reps: reps || null, weight_kg: s.weight !== '' ? fromDisplayW(String(s.weight).replace(',', '.')) : null, warmup: s.warmup, rpe: s.warmup ? null : (s.rpe || null) });
@@ -541,7 +901,7 @@ function renderActive(root) {
     const sets = collectSets();
     try {
       const r = await post('workouts/save', { id: w.id, date: w.date, name: w.name, notes: w.notes || null, duration_min: w.duration_min || minutes(), effort: effort || null, sets });
-      writeActive(null); histCache.clear(); stopRest();
+      dropHold(); writeActive(null); histCache.clear(); stopRest();
       toast(r.queued ? 'Workout saved offline. It will sync when you reconnect.' : 'Workout saved');
       const after = r.queued ? '#/train' : `#/train/${r.workout.id}`;
       // A cool-down attached to the routine (or the scheduled session) comes next.
@@ -551,7 +911,7 @@ function renderActive(root) {
   const finish = async () => {
     const sets = collectSets();
     if (!sets.length) {
-      if (await confirmSheet('Nothing logged', 'No sets have reps yet. Discard this workout?', 'Discard')) { stopRest(); writeActive(null); location.hash = '#/train'; }
+      if (await confirmSheet('Nothing logged', 'No sets have reps or times yet. Discard this workout?', 'Discard')) { stopRest(); dropHold(); writeActive(null); location.hash = '#/train'; }
       return;
     }
     const kinds = Object.fromEntries((await exercises()).map(e => [e.id, e.kind || 'lift']));
@@ -581,16 +941,22 @@ function renderActive(root) {
     h('header', { class: 'page-head' },
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, elapsed, nameBtn),
       h('div', { class: 'actions' },
-        h('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmSheet('Discard workout?', 'Everything logged in this session will be lost.', 'Discard')) { stopRest(); writeActive(null); location.hash = '#/train'; } } }, 'Discard'),
+        h('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmSheet('Discard workout?', 'Everything logged in this session will be lost.', 'Discard')) { stopRest(); dropHold(); writeActive(null); location.hash = '#/train'; } } }, 'Discard'),
         h('button', { class: 'btn sm primary', onclick: finish }, 'Finish'))),
     h('div', { class: 'stack', style: { maxWidth: '760px' } },
       restBox,
       cards,
-      h('button', { class: 'btn block', onclick: () => pickExercise((ex) => { w.exercises.push({ exercise_id: ex.id, name: ex.name, sets: [0, 1, 2].map(() => ({ weight: '', reps: '', warmup: false, done: false })) }); save(); drawCards(); }) }, 'Add exercise'),
+      h('button', { class: 'btn block', onclick: () => pickExercise(async (ex) => { w.exercises.push(await newEntry(ex)); save(); drawCards(); }) }, 'Add exercise'),
       h('label', { class: 'field' }, 'Notes', h('textarea', { oninput: (e) => { w.notes = e.target.value; save(); } }, w.notes || ''))));
 
+  // A hold that was running when you left (or the app reloaded) carries on from its timestamps.
+  if (w.hold) { runHold(); if (w.hold?.full) buildFull(); }
+
   const tick = setInterval(() => { elapsed.textContent = `In progress, ${minutes()} min`; }, 30000);
-  return () => { clearInterval(tick); clearInterval(restTimer); restTimer = null; document.removeEventListener('visibilitychange', onVisible); };
+  return () => {
+    clearInterval(tick); clearInterval(restTimer); restTimer = null; document.removeEventListener('visibilitychange', onVisible);
+    clearInterval(holdInt); holdInt = null; holdUI.full?.root.remove(); holdUI.full = null; keepAwake(false);
+  };
 }
 
 /* ---------- saved workout ---------- */
@@ -606,10 +972,15 @@ async function renderSaved(root, id) {
   });
   root.replaceChildren(
     pageHead(`${shortDate(w.date)}${w.duration_min ? `, ${w.duration_min} min` : ''}`, w.name, [
-      h('button', { class: 'btn sm', onclick: () => {
+      h('button', { class: 'btn sm', onclick: async () => {
         if (readActive()) { toast('Finish or discard the workout in progress first', 'error'); return; }
+        const by = Object.fromEntries((await exercises()).map(e => [e.id, e]));
         writeActive({ id: w.id, name: w.name, date: w.date, notes: w.notes, duration_min: w.duration_min, effort: w.effort, started_at: Date.now(),
-          exercises: groups.map(g => ({ exercise_id: g.exercise_id, name: g.name, sets: g.sets.map(s => ({ weight: liftDisplay(s.weight_kg), reps: s.reps == null ? '' : String(s.reps), warmup: s.warmup, rpe: s.rpe || null, done: true })) })) });
+          exercises: groups.map(g => {
+            const def = by[g.exercise_id] || { id: g.exercise_id, name: g.name, measure: g.sets[0]?.measure, kind: g.sets[0]?.kind };
+            const sets = g.sets.map(s => blankSet({ weight: liftDisplay(s.weight_kg), reps: s.reps == null ? '' : String(s.reps), time: fmtHold(s.duration_s), side: s.side || null, warmup: s.warmup, rpe: s.rpe || null, done: true }));
+            return entryFor({ ...def, name: g.name, measure: g.sets[0]?.measure || def.measure }, sets, g.sets.some(s => s.weight_kg));
+          }) });
         location.hash = '#/train/active';
       } }, 'Edit'),
       h('button', { class: 'btn sm ghost danger', onclick: async () => {
@@ -624,10 +995,13 @@ async function renderSaved(root, id) {
         h('div', { class: 'stat' }, h('span', { class: 'num' }, groups.length), h('span', { class: 'label' }, 'exercises'))),
       ...groups.map(g => h('section', { class: 'card', 'aria-label': g.name },
         h('div', { class: 'card-head' }, h('h2', { style: { font: '600 18px var(--body)' } }, h('a', { href: `#/train/exercise/${g.exercise_id}`, style: { color: 'inherit' } }, g.name)),
-          h('span', { class: 'small muted' }, (() => { const b = Math.max(0, ...g.sets.filter(s => !s.warmup).map(s => e1rm(s.weight_kg, s.reps) || 0)); return b ? `e1RM ${liftDisplay(b)} ${wUnit()}` : ''; })())),
+          h('span', { class: 'small muted' }, (() => {
+            if (g.sets[0]?.measure === 'time') { const b = Math.max(0, ...g.sets.map(s => s.duration_s || 0)); return b ? `Longest ${fmtHold(b)}` : ''; }
+            const b = Math.max(0, ...g.sets.filter(s => !s.warmup).map(s => e1rm(s.weight_kg, s.reps) || 0)); return b ? `e1RM ${liftDisplay(b)} ${wUnit()}` : ''; })())),
         h('table', { class: 'table' }, h('tbody', null, (() => { let n = 0; return g.sets.map(s => h('tr', null,
-          h('td', { class: 'muted', style: { width: '40px' } }, s.warmup ? 'W' : String(++n)),
-          h('td', null, `${s.weight_kg != null ? `${liftDisplay(s.weight_kg)} ${wUnit()}` : 'Bodyweight'} x ${s.reps ?? '-'}`),
+          h('td', { class: 'muted', style: { width: '40px' } }, s.warmup ? 'W' : `${s.side === 'R' && n ? n : ++n}${s.side || ''}`),
+          h('td', null, s.measure === 'time' || s.duration_s != null ? holdText(s)
+            : `${s.weight_kg != null ? `${liftDisplay(s.weight_kg)} ${wUnit()}` : 'Bodyweight'} x ${s.reps ?? '-'}`),
           h('td', { class: 'r muted' }, s.rpe ? `Effort ${s.rpe}` : ''))); })())))),
       w.notes ? h('section', { class: 'card' }, h('h2', null, 'Notes'), h('p', { style: { whiteSpace: 'pre-wrap' } }, w.notes)) : null));
 }
@@ -639,6 +1013,7 @@ async function renderExercise(root, id) {
   histCache.delete(id);
   const [hist, exs] = await Promise.all([history(id), exercises()]);
   const ex = exs.find(e => e.id === id) || { name: 'Exercise' };
+  if (isTimed(ex) || hist.some(x => x.sets.some(s => s.duration_s != null))) return renderTimedExercise(root, ex, hist);
   const sessions = [...hist].reverse();
   const best = sessions.map(s => Math.max(0, ...s.sets.filter(x => !x.warmup).map(x => e1rm(x.weight_kg, x.reps) || 0)) || null);
   root.replaceChildren(
@@ -658,4 +1033,46 @@ async function renderExercise(root, id) {
           h('div', { class: 'main' }, h('span', { class: 'title' }, relDay(s.date)),
             h('span', { class: 'small muted' }, s.sets.filter(x => !x.warmup).map(x => `${liftDisplay(x.weight_kg) || 'BW'}x${x.reps ?? '-'}`).join(', '))))))
           : h('p', { class: 'note' }, 'Not logged yet.'))));
+}
+
+/** History for an exercise held for time: longest hold, best session, time held lately, heaviest added weight. */
+function renderTimedExercise(root, ex, hist) {
+  const work = (x) => x.sets.filter(s => !s.warmup && s.duration_s);
+  const sessions = [...hist].reverse().filter(x => work(x).length);
+  const longest = sessions.map(x => Math.max(...work(x).map(s => s.duration_s)));
+  const weighted = sessions.map(x => work(x).some(s => s.weight_kg));
+  const total = (x) => work(x).reduce((a, s) => a + s.duration_s, 0);
+  const all = hist.flatMap(work);
+  const best = all.length ? Math.max(...all.map(s => s.duration_s)) : null;
+  const bestSession = hist.length ? Math.max(0, ...hist.map(total)) : 0;
+  const since = shiftDate(-30);
+  const recent = hist.filter(x => x.date >= since).reduce((a, x) => a + total(x), 0);
+  const heavy = all.filter(s => s.weight_kg).sort((a, b) => b.weight_kg - a.weight_kg || b.duration_s - a.duration_s)[0] || null;
+  const stat = (v, l) => h('div', { class: 'stat' }, h('span', { class: 'num' }, v), h('span', { class: 'label' }, l));
+  root.replaceChildren(
+    pageHead([ex.muscle, ex.equipment].filter(Boolean).join(', ') || 'Exercise', ex.name, [
+      ex.id ? h('button', { class: 'btn sm ghost', onclick: () => editExercise(ex, () => { exercisesCache = null; location.hash = '#/train'; }) }, 'Edit') : null]),
+    h('div', { class: 'stack' },
+      h('section', { class: 'card', 'aria-label': 'Records', style: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px 8px' } },
+        stat(best ? fmtHold(best) : '-', 'longest hold'),
+        stat(bestSession ? fmtHold(bestSession) : '-', 'best session total'),
+        stat(fmtHold(recent), 'held, last 30 days'),
+        stat(heavy ? `+${liftDisplay(heavy.weight_kg)} ${wUnit()}` : '-', heavy ? `heaviest, held ${fmtHold(heavy.duration_s)}` : 'heaviest added weight')),
+      h('div', { class: 'row' },
+        h('section', { class: 'card grow-3', 'aria-label': 'Longest hold' },
+          h('h2', null, 'Longest hold'),
+          weighted.some(Boolean) && sessions.length > 1 ? h('p', { class: 'note small', style: { marginTop: '-4px' } }, 'Orange dots had added weight.') : null,
+          sessions.length > 1
+            ? chart({ n: sessions.length, w: 640, h: 220, lines: [{ values: longest, color: 'var(--primary)', endDot: !weighted.at(-1) }],
+                dots: [{ values: longest.map((v, i) => (weighted[i] ? null : v)), color: 'var(--primary)' }, { values: longest.map((v, i) => (weighted[i] ? v : null)), color: '#FF914D', r: 5.5 }],
+                xLabels: dateTicks(sessions.map(x => x.date), Math.min(4, sessions.length)), yFormat: (v) => fmtHold(v), yMin: 0,
+                label: `Longest hold for ${ex.name} by session` })
+            : h('p', { class: 'note' }, 'Log this exercise in two or more sessions to see a trend.')),
+        h('section', { class: 'card grow-2', 'aria-label': 'Sessions' },
+          h('h2', null, 'Sessions'),
+          hist.length ? h('div', { class: 'list' }, hist.slice(0, 30).map(x => h('a', { class: 'list-row', href: `#/train/${x.workout_id}`, style: { textDecoration: 'none', color: 'inherit' } },
+            h('div', { class: 'main' }, h('span', { class: 'title' }, relDay(x.date)),
+              h('span', { class: 'small muted' }, work(x).map(s => `${s.side ? `${s.side} ` : ''}${holdText(s)}`).join(' · '))),
+            h('span', { class: 'small muted' }, `${fmtHold(total(x))} total`))))
+            : h('p', { class: 'note' }, 'Not logged yet.')))));
 }

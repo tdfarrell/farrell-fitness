@@ -44,6 +44,9 @@ const ICONS = {
   sound: '<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
   muted: '<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
   play: '<path d="M7 5l12 7-12 7z" fill="currentColor"/>',
+  pause: '<path d="M7 5h3v14H7zM14 5h3v14h-3z" fill="currentColor"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   ramp: '<path d="M4 18l5-5 4 3 7-8"/>',
   stretch: '<circle cx="12" cy="4.5" r="1.8"/><path d="M12 7v6l-4 7M12 13l4 7M5 9l7-1 7 1"/>',
   sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
@@ -218,4 +221,14 @@ export function debounce(fn, ms) {
 export function recoveryColor(r) {
   if (r == null) return 'var(--muted)';
   return r >= 67 ? 'var(--green)' : r >= 34 ? 'var(--yellow)' : 'var(--red)';
+}
+
+/** The countdown ring used by the stretch and hold timers. The last child is the arc to move. */
+export function svgRing(C, frac, change) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 250 250'); svg.setAttribute('aria-hidden', 'true');
+  const c = (stroke, extra = {}) => { const e = document.createElementNS(ns, 'circle'); Object.entries({ cx: 125, cy: 125, r: 110, fill: 'none', 'stroke-width': 14, stroke, ...extra }).forEach(([a, v]) => e.setAttribute(a, v)); return e; };
+  svg.append(c('rgba(255,255,255,0.14)'), c(change ? '#B8C6DC' : '#FF914D', { 'stroke-linecap': 'round', 'stroke-dasharray': C.toFixed(1), 'stroke-dashoffset': (C * (1 - frac)).toFixed(1), transform: 'rotate(-90 125 125)' }));
+  return svg;
 }

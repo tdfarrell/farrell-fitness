@@ -1,5 +1,5 @@
 // Stretching: routines and the stretch library (Train > Stretch), their editors, and the guided timer.
-import { h, icon, fmt0, todayISO, relDay, openSheet, toast, confirmSheet } from '../ui.js';
+import { h, icon, fmt0, todayISO, relDay, openSheet, toast, confirmSheet, svgRing } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary } from '../store.js';
 import { pageHead, loading } from '../components.js';
@@ -318,11 +318,3 @@ async function renderRun(root, id) {
 }
 
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
-function svgRing(C, frac, change) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 250 250'); svg.setAttribute('aria-hidden', 'true');
-  const c = (stroke, extra = {}) => { const e = document.createElementNS(ns, 'circle'); Object.entries({ cx: 125, cy: 125, r: 110, fill: 'none', 'stroke-width': 14, stroke, ...extra }).forEach(([a, v]) => e.setAttribute(a, v)); return e; };
-  svg.append(c('rgba(255,255,255,0.14)'), c(change ? '#B8C6DC' : '#FF914D', { 'stroke-linecap': 'round', 'stroke-dasharray': C.toFixed(1), 'stroke-dashoffset': (C * (1 - frac)).toFixed(1), transform: 'rotate(-90 125 125)' }));
-  return svg;
-}

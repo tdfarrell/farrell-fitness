@@ -5,6 +5,7 @@ import { state, loadSummary, wUnit, toDisplayW, liftDisplay } from '../store.js'
 import { pageHead } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
 import { addDays } from '../tdee.js';
+import { fmtHold } from '../hold.js';
 import { mean, monthCells, monthName, addMonths, monthStart, weekStart } from '../stats.js';
 import { trainSwitch, fmtDist, fmtDur, fmtPace, toDist, distUnit, SETTING_NAME } from './cardio.js';
 import { loadSchedule, startHref, moveSheet, skipOcc, editSchedule, occTitle, whenText, clock, KIND_LABEL } from './schedule.js';
@@ -210,6 +211,8 @@ export async function render(root) {
   const recs = [
     ...stats.exercises.filter(e => e.best_e1rm_date >= mStart).map(e => ({ d: e.best_e1rm_date, n: `${e.name}, estimated 1-rep max`, v: `${liftDisplay(e.best_e1rm_kg)} ${wUnit()}` })),
     ...stats.exercises.filter(e => e.heaviest_date >= mStart && e.heaviest_date !== e.best_e1rm_date).map(e => ({ d: e.heaviest_date, n: `${e.name}, heaviest set`, v: `${liftDisplay(e.heaviest_kg)} × ${e.heaviest_reps}` })),
+    ...stats.exercises.filter(e => e.best_hold_date >= mStart).map(e => ({ d: e.best_hold_date, n: `${e.name}, longest hold`, v: fmtHold(e.best_hold_s) })),
+    ...stats.exercises.filter(e => e.heaviest_hold_date >= mStart && e.heaviest_hold_date !== e.best_hold_date).map(e => ({ d: e.heaviest_hold_date, n: `${e.name}, heaviest hold`, v: `+${liftDisplay(e.heaviest_hold_kg)} ${wUnit()}, ${fmtHold(e.heaviest_hold_s)}` })),
     ...stats.cardio_records.flatMap(r => [
       r.longest_distance?.date >= mStart ? { d: r.longest_distance.date, n: `${r.activity}, longest`, v: fmtDist(r.longest_distance.distance_m) } : null,
       r.best_pace?.date >= mStart ? { d: r.best_pace.date, n: `${r.activity}, best pace`, v: fmtPace(r.activity, r.best_pace.distance_m, r.best_pace.duration_s) } : null]).filter(Boolean),

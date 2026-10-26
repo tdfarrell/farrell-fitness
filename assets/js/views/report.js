@@ -4,6 +4,7 @@ import { get, post } from '../api.js';
 import { state, loadSummary, wUnit, toDisplayW, liftDisplay, markStale } from '../store.js';
 import { pageHead, loading } from '../components.js';
 import { chart } from '../charts.js';
+import { fmtHold } from '../hold.js';
 import { addDays } from '../tdee.js';
 import { mean, weekStart, targetsOn } from '../stats.js';
 import { fmtDist, fmtPace, distUnit, toDist } from './cardio.js';
@@ -87,6 +88,7 @@ export async function render(root, params) {
 
   const wins = [
     ...r.records.slice(0, 4).map(x => x.kind === 'e1rm' ? ['trophy', `${x.name}: estimated 1-rep max ${liftDisplay(x.e1rm_kg)} ${wUnit()}, a new best (${liftDisplay(x.weight_kg)} × ${x.reps})`]
+      : x.kind === 'hold' ? ['trophy', `${x.name}: longest hold yet, ${fmtHold(x.duration_s)}${x.weight_kg ? ` at +${liftDisplay(x.weight_kg)} ${wUnit()}` : ''}`]
       : x.kind === 'pace' ? ['trophy', `${x.name}: best pace yet, ${fmtPace(x.name, x.distance_m, x.sec_per_km * x.distance_m / 1000)}`]
       : ['trophy', `${x.name}: longest yet, ${fmtDist(x.distance_m)}`]),
     best ? ['pulse', `Best recovery ${new Date(best.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' })}, ${best.whoop.recovery}%${best.whoop.sleep_hours ? ` after ${hoursMin(best.whoop.sleep_hours)} of sleep` : ''}`] : null,

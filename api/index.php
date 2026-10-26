@@ -310,31 +310,44 @@ function route_weights_delete(int $uid, string $m) {
 
 /* ---------- training ---------- */
 
+function exercise_out(array $r): array {
+    return ['id' => (int) $r['id'], 'name' => $r['name'], 'muscle' => $r['muscle'], 'equipment' => $r['equipment'], 'kind' => $r['kind'] ?? 'lift',
+        'measure' => ($r['measure'] ?? 'reps') === 'time' ? 'time' : 'reps', 'hold_s' => isset($r['hold_s']) && $r['hold_s'] !== null ? (int) $r['hold_s'] : null,
+        'per_side' => !empty($r['per_side'])];
+}
+
 function route_exercises(int $uid, string $m) {
-    $rows = q_all('SELECT id, name, muscle, equipment, kind FROM exercises WHERE user_id = ? AND archived = 0 ORDER BY name', [$uid]);
-    // The heaviest working set from the last session of each exercise, for the picker.
+    $rows = q_all('SELECT id, name, muscle, equipment, kind, measure, hold_s, per_side FROM exercises WHERE user_id = ? AND archived = 0 ORDER BY name', [$uid]);
+    // The heaviest working set (the longest hold, for timed exercises) from the last session of each exercise, for the picker.
     $last = [];
-    foreach (q_all('SELECT s.exercise_id, w.date, s.weight_kg, s.reps FROM workout_sets s JOIN workouts w ON w.id = s.workout_id
+    foreach (q_all('SELECT s.exercise_id, w.date, s.weight_kg, s.reps, s.duration_s FROM workout_sets s JOIN workouts w ON w.id = s.workout_id
         JOIN (SELECT s2.exercise_id ex, MAX(w2.date) d FROM workout_sets s2 JOIN workouts w2 ON w2.id = s2.workout_id WHERE w2.user_id = ? GROUP BY s2.exercise_id) l
           ON l.ex = s.exercise_id AND l.d = w.date
         WHERE w.user_id = ? AND s.warmup = 0', [$uid, $uid]) as $s) {
         $id = (int) $s['exercise_id'];
         $kg = $s['weight_kg'] === null ? null : (float) $s['weight_kg'];
-        if (!isset($last[$id]) || ($kg ?? 0) > ($last[$id]['weight_kg'] ?? 0)) $last[$id] = ['date' => $s['date'], 'weight_kg' => $kg, 'reps' => $s['reps'] === null ? null : (int) $s['reps']];
+        $sec = $s['duration_s'] === null ? null : (int) $s['duration_s'];
+        $better = !isset($last[$id]) || ($kg ?? 0) > ($last[$id]['weight_kg'] ?? 0)
+            || (($kg ?? 0) == ($last[$id]['weight_kg'] ?? 0) && ($sec ?? 0) > ($last[$id]['duration_s'] ?? 0));
+        if ($better) $last[$id] = ['date' => $s['date'], 'weight_kg' => $kg, 'reps' => $s['reps'] === null ? null : (int) $s['reps'], 'duration_s' => $sec];
     }
-    return ['exercises' => array_map(fn($r) => ['id' => (int) $r['id']] + $r + ['last' => $last[(int) $r['id']] ?? null], $rows)];
+    return ['exercises' => array_map(fn($r) => exercise_out($r) + ['last' => $last[(int) $r['id']] ?? null], $rows)];
 }
 
 function route_exercises_save(int $uid, string $m) {
     $kind = (string) param('kind', 'lift');
+    $measure = param('measure') === 'time' ? 'time' : 'reps';
+    $hold = opt_num('hold_s');
     $data = ['name' => req_str('name', 120), 'muscle' => param('muscle') ? mb_substr(trim((string) param('muscle')), 0, 60) : null,
-        'equipment' => normalize_equipment(param('equipment')), 'kind' => in_array($kind, EXERCISE_KINDS, true) ? $kind : 'lift'];
+        'equipment' => normalize_equipment(param('equipment')), 'kind' => in_array($kind, EXERCISE_KINDS, true) ? $kind : 'lift',
+        'measure' => $measure, 'hold_s' => $measure === 'time' && $hold !== null && $hold > 0 ? (int) min(36000, round($hold)) : null,
+        'per_side' => $measure === 'time' && param('per_side') ? 1 : 0];
     if ($id = (int) param('id', 0)) {
         db_update('exercises', $data, ['id' => $id, 'user_id' => $uid]);
     } else {
         $id = db_insert('exercises', $data + ['user_id' => $uid, 'archived' => 0]);
     }
-    return ['exercise' => ['id' => $id] + $data];
+    return ['exercise' => exercise_out(['id' => $id] + $data)];
 }
 
 function route_exercises_delete(int $uid, string $m) {
@@ -344,7 +357,7 @@ function route_exercises_delete(int $uid, string $m) {
 
 function route_exercises_history(int $uid, string $m) {
     $id = (int) req_num('id');
-    $rows = q_all('SELECT w.id AS workout_id, w.date, s.reps, s.weight_kg, s.rpe, s.warmup, s.position
+    $rows = q_all('SELECT w.id AS workout_id, w.date, s.reps, s.weight_kg, s.rpe, s.warmup, s.position, s.duration_s, s.side
         FROM workout_sets s JOIN workouts w ON w.id = s.workout_id
         WHERE w.user_id = ? AND s.exercise_id = ? ORDER BY w.date DESC, w.id DESC, s.position LIMIT 400', [$uid, $id]);
     $out = [];
@@ -352,7 +365,8 @@ function route_exercises_history(int $uid, string $m) {
         $k = $r['workout_id'];
         $out[$k] ??= ['workout_id' => (int) $k, 'date' => $r['date'], 'sets' => []];
         $out[$k]['sets'][] = ['reps' => $r['reps'] === null ? null : (int) $r['reps'], 'weight_kg' => $r['weight_kg'] === null ? null : (float) $r['weight_kg'],
-            'rpe' => $r['rpe'] === null ? null : (float) $r['rpe'], 'warmup' => (bool) $r['warmup']];
+            'rpe' => $r['rpe'] === null ? null : (float) $r['rpe'], 'warmup' => (bool) $r['warmup'],
+            'duration_s' => $r['duration_s'] === null ? null : (int) $r['duration_s'], 'side' => $r['side'] ?: null];
     }
     return ['history' => array_values($out)];
 }
@@ -361,7 +375,7 @@ function workout_out(array $w, bool $withSets = true): array {
     $out = ['id' => (int) $w['id'], 'date' => $w['date'], 'name' => $w['name'], 'notes' => $w['notes'],
         'duration_min' => $w['duration_min'] === null ? null : (int) $w['duration_min']];
     $out['effort'] = isset($w['effort']) && $w['effort'] !== null ? (int) $w['effort'] : null;
-    $sets = q_all('SELECT s.*, e.name AS exercise, e.kind FROM workout_sets s JOIN exercises e ON e.id = s.exercise_id WHERE s.workout_id = ? ORDER BY s.position, s.id', [$w['id']]);
+    $sets = q_all('SELECT s.*, e.name AS exercise, e.kind, e.measure FROM workout_sets s JOIN exercises e ON e.id = s.exercise_id WHERE s.workout_id = ? ORDER BY s.position, s.id', [$w['id']]);
     $out['set_count'] = count(array_filter($sets, fn($s) => !$s['warmup']));
     $vol = 0;
     foreach ($sets as $s) if (!$s['warmup'] && kind_in_volume($s['kind'])) $vol += ((float) $s['weight_kg']) * ((int) $s['reps']);
@@ -371,6 +385,8 @@ function workout_out(array $w, bool $withSets = true): array {
             'exercise_id' => (int) $s['exercise_id'], 'exercise' => $s['exercise'], 'position' => (int) $s['position'],
             'reps' => $s['reps'] === null ? null : (int) $s['reps'], 'weight_kg' => $s['weight_kg'] === null ? null : (float) $s['weight_kg'],
             'rpe' => $s['rpe'] === null ? null : (float) $s['rpe'], 'warmup' => (bool) $s['warmup'], 'kind' => $s['kind'] ?? 'lift',
+            'duration_s' => $s['duration_s'] === null ? null : (int) $s['duration_s'], 'side' => $s['side'] ?: null,
+            'measure' => ($s['measure'] ?? 'reps') === 'time' ? 'time' : 'reps',
         ], $sets);
     } else {
         $out['exercises'] = array_values(array_unique(array_column($sets, 'exercise')));
@@ -425,6 +441,8 @@ function route_workouts_save(int $uid, string $m) {
                 'weight_kg' => isset($s['weight_kg']) && $s['weight_kg'] !== '' ? (float) $s['weight_kg'] : null,
                 'rpe' => isset($s['rpe']) && $s['rpe'] !== '' && is_numeric($s['rpe']) ? max(1, min(10, round((float) $s['rpe'], 1))) : null,
                 'warmup' => !empty($s['warmup']) ? 1 : 0,
+                'duration_s' => isset($s['duration_s']) && is_numeric($s['duration_s']) && $s['duration_s'] > 0 ? (int) min(36000, round((float) $s['duration_s'])) : null,
+                'side' => in_array($s['side'] ?? null, ['L', 'R'], true) ? $s['side'] : null,
             ]);
         }
         $pdo->commit();
@@ -455,7 +473,7 @@ function routine_out(array $r): array {
     return ['id' => (int) $r['id'], 'name' => $r['name'], 'exercise_ids' => $ids, 'plan' => is_array($plan) && count($plan) === count($ids) ? $plan : null];
 }
 
-/** Planned sets for each exercise in a routine, in the same order: [{sets: [{weight_kg, reps, warmup}]}]. */
+/** Planned sets for each exercise in a routine, in the same order: [{sets: [{weight_kg, reps, warmup, duration_s?}]}]. */
 function clean_plan($plan, int $n): ?array {
     if (!is_array($plan)) return null;
     $out = [];
@@ -465,7 +483,8 @@ function clean_plan($plan, int $n): ?array {
             if (!is_array($s)) continue;
             $w = isset($s['weight_kg']) && is_numeric($s['weight_kg']) ? round(max(0, min(1000, (float) $s['weight_kg'])), 2) : null;
             $r = isset($s['reps']) && is_numeric($s['reps']) ? (int) max(0, min(1000, (int) $s['reps'])) : null;
-            $sets[] = ['weight_kg' => $w, 'reps' => $r, 'warmup' => !empty($s['warmup'])];
+            $sec = isset($s['duration_s']) && is_numeric($s['duration_s']) && $s['duration_s'] > 0 ? (int) min(36000, round((float) $s['duration_s'])) : null;
+            $sets[] = ['weight_kg' => $w, 'reps' => $r, 'warmup' => !empty($s['warmup'])] + ($sec ? ['duration_s' => $sec] : []);
         }
         $out[] = ['sets' => $sets];
     }
@@ -618,7 +637,7 @@ function route_export(int $uid, string $m) {
         'days' => $t('SELECT date, status, note FROM days WHERE user_id = ? ORDER BY date'),
         'weights' => $t('SELECT date, weight_kg, body_fat, source FROM weights WHERE user_id = ? ORDER BY date'),
         'foods' => $t('SELECT source, source_id, name, brand, barcode, kcal, protein, carbs, fat, fiber, sugar, sodium, micros, portions, recipe FROM foods WHERE user_id = ? AND archived = 0'),
-        'exercises' => $t('SELECT id, name, muscle, equipment, kind FROM exercises WHERE user_id = ?'),
+        'exercises' => $t('SELECT id, name, muscle, equipment, kind, measure, hold_s, per_side FROM exercises WHERE user_id = ?'),
         'routines' => array_map('routine_out', $t('SELECT * FROM routines WHERE user_id = ? ORDER BY name')),
         'workouts' => array_map(fn($w) => workout_out($w), $t('SELECT * FROM workouts WHERE user_id = ? ORDER BY date')),
         'checkins' => $t('SELECT date, expenditure, trend_kg, kcal, protein, carbs, fat FROM checkins WHERE user_id = ? ORDER BY date'),

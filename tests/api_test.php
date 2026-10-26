@@ -143,6 +143,48 @@ check($st === 200 && count($pr['plan']) === 2 && $pr['plan'][0]['sets'][0]['warm
 [, $r] = api('routines');
 check(count(array_filter($r['routines'], fn($x) => $x['plan'] !== null)) === 1, 'routines without a plan have none');
 api('routines/delete', ['id' => $pr['id']]);
+
+/* stage 4: exercises tracked by time */
+check($plank['measure'] === 'time' && $plank['hold_s'] === 45 && $plank['per_side'] === false, 'seeded plank is held for time');
+$sideP = array_values(array_filter($ex, fn($e) => $e['name'] === 'Side plank'))[0] ?? null;
+seed_exercises(9999); // a new account, seeded on the current schema
+$fresh = q_all('SELECT name, kind, measure, hold_s, per_side FROM exercises WHERE user_id = 9999 AND name IN (?, ?)', ['Side plank', 'Farmer carry']);
+$fresh = array_column($fresh, null, 'name');
+check((int) ($fresh['Side plank']['per_side'] ?? 0) === 1 && ($fresh['Farmer carry']['kind'] ?? '') === 'carry' && ($fresh['Farmer carry']['measure'] ?? '') === 'time', 'new accounts: side plank is each side, farmer carry is a timed carry');
+q('DELETE FROM exercises WHERE user_id = 9999'); q('DELETE FROM routines WHERE user_id = 9999');
+q("UPDATE exercises SET per_side = 1 WHERE id = ?", [$sideP['id']]);
+[$st, $r] = api('exercises/save', ['name' => 'Wall sit', 'kind' => 'core', 'measure' => 'time', 'hold_s' => 60.4, 'per_side' => 1]);
+$wall = $r['exercise']['id'] ?? 0;
+check($st === 200 && $r['exercise']['measure'] === 'time' && $r['exercise']['hold_s'] === 60 && $r['exercise']['per_side'] === true, 'save a timed exercise with a usual hold');
+[, $r] = api('exercises/save', ['id' => $wall, 'name' => 'Wall sit', 'measure' => 'minutes', 'hold_s' => 60, 'per_side' => 1]);
+check($r['exercise']['measure'] === 'reps' && $r['exercise']['hold_s'] === null && $r['exercise']['per_side'] === false, 'unknown measure is reps, and reps drop the hold settings');
+api('exercises/delete', ['id' => $wall]);
+$ago = date('Y-m-d', strtotime("$today -10 days"));
+api('workouts/save', ['date' => $ago, 'name' => 'Core', 'sets' => [['exercise_id' => $plank['id'], 'duration_s' => 50]]]);
+[$st, $r] = api('workouts/save', ['date' => $today, 'name' => 'Core', 'sets' => [
+    ['exercise_id' => $plank['id'], 'duration_s' => 90], ['exercise_id' => $plank['id'], 'duration_s' => 40, 'weight_kg' => 20.41],
+    ['exercise_id' => $sideP['id'], 'duration_s' => 30, 'side' => 'L'], ['exercise_id' => $sideP['id'], 'duration_s' => 28.6, 'side' => 'R'],
+    ['exercise_id' => $sideP['id'], 'duration_s' => -5, 'side' => 'X'], ['exercise_id' => $bench, 'reps' => 5, 'weight_kg' => 100]]]);
+$core = $r['workout']['id'] ?? 0;
+$cs = $r['workout']['sets'] ?? [];
+check($st === 200 && $cs[0]['duration_s'] === 90 && $cs[0]['measure'] === 'time' && $cs[1]['weight_kg'] == 20.41 && $cs[3]['duration_s'] === 29 && $cs[3]['side'] === 'R', 'timed sets keep their time, added weight and side');
+check($cs[4]['duration_s'] === null && $cs[4]['side'] === null && $r['workout']['volume_kg'] == 500, 'bad times and sides are dropped, holds add no volume');
+[, $r] = api('exercises/history', null, ['id' => $plank['id']]);
+check($r['history'][0]['sets'][0]['duration_s'] === 90 && $r['history'][0]['sets'][1]['weight_kg'] == 20.41, 'exercise history has hold times and added weight');
+$pl = array_values(array_filter(api('exercises')[1]['exercises'], fn($e) => $e['id'] === $plank['id']))[0];
+check($pl['last']['duration_s'] === 40 && $pl['last']['weight_kg'] == 20.41, 'exercise list carries the last session, heaviest hold first');
+[, $r] = api('training/stats');
+$ps = array_values(array_filter($r['exercises'], fn($e) => $e['exercise_id'] === $plank['id']))[0] ?? null;
+check($ps && $ps['best_hold_s'] === 90 && $ps['heaviest_hold_kg'] == 20.41 && $ps['heaviest_hold_s'] === 40 && $ps['best_e1rm_kg'] === null, 'training stats: longest hold and heaviest hold');
+[, $r] = api('report/week', null, ['date' => $today]);
+$hr = array_values(array_filter($r['records'] ?? [], fn($x) => $x['kind'] === 'hold'));
+check(count($hr) === 1 && $hr[0]['duration_s'] === 90 && $hr[0]['name'] === 'Plank', 'weekly report: a longer hold than before is a record');
+[, $r] = api('routines/save', ['name' => 'Core plan', 'exercise_ids' => [$plank['id']], 'plan' => [['sets' => [['duration_s' => 45], ['duration_s' => 45, 'weight_kg' => 10], ['duration_s' => 'soon']]]]]);
+$cp = $r['routine'] ?? null;
+check($cp['plan'][0]['sets'][0]['duration_s'] === 45 && $cp['plan'][0]['sets'][1]['weight_kg'] == 10 && !isset($cp['plan'][0]['sets'][2]['duration_s']), 'routines plan holds');
+api('routines/delete', ['id' => $cp['id']]);
+api('workouts/delete', ['id' => $core]);
+q('DELETE FROM workouts WHERE user_id = 1 AND date = ? AND name = ?', [$ago, 'Core']);
 [$st, $r] = api('cardio/save', ['date' => $today, 'activity' => 'Run', 'setting' => 'track', 'laps' => 12, 'lap_m' => 400, 'lap_times' => [124, 122, 121, 'x', 120]]);
 $tr = $r['session'] ?? null;
 check($st === 200 && $tr['setting'] === 'track' && $tr['distance_m'] == 4800 && $tr['duration_s'] === 487 && count($tr['lap_times']) === 4, 'track: laps give the distance, lap times the duration');
@@ -578,6 +620,15 @@ q("DELETE FROM users WHERE username = 'taken'");
 [$st, $r] = api('export');
 check($st === 200 && count($r['journal']) === 1 && count($r['lab_results']) === 2 && count($r['meal_plans']) === 1 && isset($r['habits'], $r['blood_sugar'], $r['measurements'], $r['cardio']), 'export includes the new data');
 check(count($r['progress_photos']) === 1 && isset($r['medications_and_supplements'][0]['schedule']) && count($r['doses_taken']) >= 4, 'export includes photos (list only), med schedules and doses');
+
+/* upgrading from version 7: planks never logged with reps are held for time */
+$oldPlank = db_insert('exercises', ['user_id' => 1, 'name' => 'plank', 'muscle' => 'Core', 'archived' => 0]);
+$repPlank = db_insert('exercises', ['user_id' => 1, 'name' => 'Plank', 'muscle' => 'Core', 'archived' => 0]);
+$wo = db_insert('workouts', ['user_id' => 1, 'date' => $yday, 'name' => 'Old', 'created_at' => time()]);
+db_insert('workout_sets', ['workout_id' => $wo, 'exercise_id' => $repPlank, 'reps' => 1]);
+q("UPDATE meta SET v = '7' WHERE k = 'schema_version'");
+api('exercises');
+check(q_val('SELECT measure FROM exercises WHERE id = ?', [$oldPlank]) === 'time' && q_val('SELECT measure FROM exercises WHERE id = ?', [$repPlank]) === 'reps', 'version 7 database: unlogged planks switch to time, ones logged with reps stay');
 
 /* upgrading from version 6: the starter Stretch habit becomes a stretching habit */
 $oldHabit = db_insert('habits', ['user_id' => 1, 'name' => 'Stretch', 'slot' => 'day', 'kind' => 'minutes', 'target' => 10, 'active' => 1, 'position' => 99, 'created_at' => time()]);

@@ -4,6 +4,7 @@ import { get, post } from '../api.js';
 import { state, loadSummary, imperial, wUnit, toDisplayW, liftDisplay } from '../store.js';
 import { pageHead, loading, foldCard } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
+import { fmtHold } from '../hold.js';
 
 export const ACTIVITIES = ['Run', 'Walk', 'Bike', 'Jump rope', 'Row', 'Swim', 'Hike', 'Elliptical', 'Stairs', 'Other'];
 const ICON = { Run: 'run', Walk: 'walk', Bike: 'bike', 'Jump rope': 'rope', Row: 'row', Swim: 'swim', Hike: 'hike', Stairs: 'stairs' };
@@ -428,6 +429,9 @@ export async function renderProgress(root) {
     h('span', { class: 'num', style: { fontSize: '22px' } }, val));
   const strengthRecs = st.exercises.filter(e => e.best_e1rm_kg).slice(0, 12).map(e =>
     rec(e.name, `${shortDate(e.best_e1rm_date)}, ${liftDisplay(e.best_e1rm_set.weight_kg)} x ${e.best_e1rm_set.reps}. Heaviest ${liftDisplay(e.heaviest_kg)} ${wUnit()} x ${e.heaviest_reps}`, `${liftDisplay(e.best_e1rm_kg)} ${wUnit()}`, `#/train/exercise/${e.exercise_id}`));
+  // Timed exercises: the longest hold, and the most added weight held.
+  strengthRecs.push(...st.exercises.filter(e => e.best_hold_s && !e.best_e1rm_kg).slice(0, 8).map(e =>
+    rec(`${e.name}, longest hold`, `${shortDate(e.best_hold_date)}${e.heaviest_hold_kg ? `. Heaviest +${liftDisplay(e.heaviest_hold_kg)} ${wUnit()} for ${fmtHold(e.heaviest_hold_s)}` : ''}`, fmtHold(e.best_hold_s), `#/train/exercise/${e.exercise_id}`)));
   const cardioRecs = st.cardio_records.flatMap(a => [
     a.longest_distance ? rec(`Longest ${a.activity.toLowerCase()}`, shortDate(a.longest_distance.date), fmtDist(a.longest_distance.distance_m)) : null,
     a.best_pace ? rec(`Best ${SPEED.has(a.base_activity || a.activity) ? 'speed' : 'pace'}, ${a.activity.toLowerCase()}`, `${shortDate(a.best_pace.date)}, ${fmtDist(a.best_pace.distance_m)} in ${fmtDur(a.best_pace.duration_s)}`, fmtPace(a.base_activity || a.activity, a.best_pace.distance_m, a.best_pace.duration_s)) : null,

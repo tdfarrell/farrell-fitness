@@ -507,7 +507,7 @@ function schema_sql(string $driver): array {
 }
 
 // Bump when the schema changes. Existing databases are brought up to date on the next request.
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 /** Columns added after the first release: [table, column, type]. */
 function added_columns(): array {
@@ -544,6 +544,12 @@ function added_columns(): array {
         ['cardio', 'resistance', 'DOUBLE'],
         ['cardio', 'cadence', 'INT'],
         ['cardio', 'watts', 'INT'],
+        // Version 8: exercises tracked by time (planks, carries), with a usual hold and each-side holds.
+        ['exercises', 'measure', "VARCHAR(8) NOT NULL DEFAULT 'reps'"],
+        ['exercises', 'hold_s', 'INT'],
+        ['exercises', 'per_side', 'INT NOT NULL DEFAULT 0'],
+        ['workout_sets', 'duration_s', 'INT'],
+        ['workout_sets', 'side', 'VARCHAR(1)'],
     ];
 }
 
@@ -601,6 +607,11 @@ function migrate_data(PDO $pdo, int $from): void {
     if ($from < 7) {
         // The starter "Stretch" habit (minutes) now ticks itself from stretching sessions.
         $pdo->exec("UPDATE habits SET kind = 'mobility' WHERE kind = 'minutes' AND LOWER(name) IN ('stretch', 'stretching', 'mobility')");
+    }
+    if ($from < 8) {
+        // Planks are held for time. Only ones never logged with reps switch over, so past entries still read right.
+        $pdo->exec("UPDATE exercises SET measure = 'time', hold_s = 45 WHERE LOWER(name) = 'plank'
+            AND id NOT IN (SELECT exercise_id FROM workout_sets WHERE reps IS NOT NULL)");
     }
 }
 

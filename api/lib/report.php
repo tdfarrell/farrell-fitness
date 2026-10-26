@@ -26,10 +26,19 @@ function training_totals(int $uid, string $from, string $to): array {
 /** New strength and cardio records set between $from and $to (each beats everything before $from). */
 function records_between(int $uid, string $from, string $to): array {
     $out = [];
-    $rows = q_all('SELECT w.date, s.exercise_id, e.name, s.reps, s.weight_kg FROM workout_sets s JOIN workouts w ON w.id = s.workout_id
+    $rows = q_all('SELECT w.date, s.exercise_id, e.name, s.reps, s.weight_kg, s.duration_s FROM workout_sets s JOIN workouts w ON w.id = s.workout_id
         JOIN exercises e ON e.id = s.exercise_id WHERE w.user_id = ? AND s.warmup = 0 AND w.date <= ? ORDER BY w.date', [$uid, $to]);
     $before = []; $during = [];
+    $holdBefore = []; $holdDuring = [];
     foreach ($rows as $r) {
+        if ($r['duration_s'] !== null && (int) $r['duration_s'] > 0) {
+            // Timed sets: a longer hold than ever before is a record.
+            $id = (int) $r['exercise_id']; $sec = (int) $r['duration_s'];
+            if ($r['date'] < $from) $holdBefore[$id] = max($holdBefore[$id] ?? 0, $sec);
+            elseif (!isset($holdDuring[$id]) || $sec > $holdDuring[$id]['duration_s']) $holdDuring[$id] = ['kind' => 'hold', 'name' => $r['name'], 'exercise_id' => $id,
+                'duration_s' => $sec, 'weight_kg' => $r['weight_kg'] === null ? null : (float) $r['weight_kg'], 'date' => $r['date']];
+            continue;
+        }
         $e = e1rm_kg($r['weight_kg'] === null ? null : (float) $r['weight_kg'], $r['reps'] === null ? null : (int) $r['reps']);
         if ($e === null) continue;
         $id = (int) $r['exercise_id'];
@@ -38,6 +47,7 @@ function records_between(int $uid, string $from, string $to): array {
             'weight_kg' => (float) $r['weight_kg'], 'reps' => (int) $r['reps'], 'date' => $r['date']];
     }
     foreach ($during as $id => $d) if (isset($before[$id]) && $d['e1rm_kg'] > $before[$id] + 0.01) $out[] = $d;
+    foreach ($holdDuring as $id => $d) if (isset($holdBefore[$id]) && $d['duration_s'] > $holdBefore[$id]) $out[] = $d;
 
     $sessions = cardio_sessions($uid, '2000-01-01', $to);
     $best = [];

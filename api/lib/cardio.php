@@ -186,7 +186,7 @@ function route_training_stats(int $uid, string $m) {
     $allFrom = $first ?: $to;
 
     // Strength.
-    $sets = q_all('SELECT w.id wid, w.date, s.exercise_id, e.name, e.kind, s.reps, s.weight_kg, s.warmup FROM workout_sets s
+    $sets = q_all('SELECT w.id wid, w.date, s.exercise_id, e.name, e.kind, e.measure, s.reps, s.weight_kg, s.warmup, s.duration_s FROM workout_sets s
         JOIN workouts w ON w.id = s.workout_id JOIN exercises e ON e.id = s.exercise_id WHERE w.user_id = ? ORDER BY w.date, w.id, s.position', [$uid]);
     $lift = ['workouts' => [], 'sets' => 0, 'reps' => 0, 'volume_kg' => 0.0];
     $perEx = [];
@@ -203,7 +203,9 @@ function route_training_stats(int $uid, string $m) {
         $weeklyVol[$wk] = ($weeklyVol[$wk] ?? 0) + $vol;
         $id = (int) $s['exercise_id'];
         $perEx[$id] ??= ['exercise_id' => $id, 'name' => $s['name'], 'best_e1rm_kg' => null, 'best_e1rm_date' => null, 'best_e1rm_set' => null,
-            'heaviest_kg' => null, 'heaviest_date' => null, 'heaviest_reps' => null, 'sessions' => [], 'volume_kg' => 0.0];
+            'heaviest_kg' => null, 'heaviest_date' => null, 'heaviest_reps' => null, 'sessions' => [], 'volume_kg' => 0.0,
+            'measure' => ($s['measure'] ?? 'reps') === 'time' ? 'time' : 'reps', 'best_hold_s' => null, 'best_hold_date' => null,
+            'heaviest_hold_kg' => null, 'heaviest_hold_s' => null, 'heaviest_hold_date' => null];
         $p = &$perEx[$id];
         $p['sessions'][$s['wid']] = true;
         $p['volume_kg'] += $vol;
@@ -213,6 +215,14 @@ function route_training_stats(int $uid, string $m) {
         }
         if ($kg !== null && $reps && ($p['heaviest_kg'] === null || $kg > $p['heaviest_kg'] + 1e-9)) {
             $p['heaviest_kg'] = $kg; $p['heaviest_date'] = $s['date']; $p['heaviest_reps'] = $reps;
+        }
+        // Timed sets: the longest hold, and the most added weight held (the longer hold breaks a tie).
+        $sec = $s['duration_s'] === null ? null : (int) $s['duration_s'];
+        if ($sec) {
+            if ($p['best_hold_s'] === null || $sec > $p['best_hold_s']) { $p['best_hold_s'] = $sec; $p['best_hold_date'] = $s['date']; }
+            if ($kg && ($p['heaviest_hold_kg'] === null || $kg > $p['heaviest_hold_kg'] + 1e-9 || (abs($kg - $p['heaviest_hold_kg']) < 1e-9 && $sec > $p['heaviest_hold_s']))) {
+                $p['heaviest_hold_kg'] = $kg; $p['heaviest_hold_s'] = $sec; $p['heaviest_hold_date'] = $s['date'];
+            }
         }
         unset($p);
     }

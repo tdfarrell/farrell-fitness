@@ -41,6 +41,8 @@ jobs:
         run: node tests/stats.test.mjs
       - name: Nutrition, phases and drink insights
         run: node tests/nutrition.test.mjs
+      - name: Hold timer for timed sets
+        run: node tests/hold.test.mjs
 
   deploy:
     needs: test
