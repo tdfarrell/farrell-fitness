@@ -7,6 +7,9 @@ A personal nutrition, training and health tracker that installs on your phone as
 ## What's in it
 
 - **Food.** An overview with calorie and macro trends, a month calendar colored by how each day landed against its target, recent days and your most-logged foods. A day-by-day diary with USDA FoodData Central search, barcode scanning (Open Food Facts, then USDA), your own foods and recipes, quick add, copy meals and day status (fasted, left out). Meal plans that check a day against your targets without logging it.
+- **Nutrients and Fill my macros.** Vitamins, minerals, fiber, sodium, saturated fat and sugar for each day or a 7-day average, against standard targets for your age and sex or your own. "Fill my macros" suggests one or two of your own foods, in sensible portions, that cover what's left today.
+- **Drinks.** Water, caffeine and alcohol counters on Today, with a caffeine cut-off time and an option to add drink calories to the food log. Insights compare drinks with your sleep, HRV and recovery.
+- **Diet phases.** Line up fat loss, diet breaks, a reverse diet, lean gains and maintenance. Each weekly check-in sets targets from the phase you're in.
 - **Weight and goal projection.** Daily weigh-ins with a smoothed trend, and a projection of when you'll reach a goal weight at different rates, with the calories each rate means.
 - **Adaptive expenditure and weekly check-ins.** The last three weeks of intake are compared with how fast your weight is changing (about 7,700 kcal per kg). On your check-in day, new targets are proposed from the estimate, your goal rate and macro preferences.
 - **Training.** An overview with your next routine, this week, 12-week trends, a calendar and new records. Routines, a set-by-set logger with last-time values, warm-ups and a rest timer, cardio with pace and heart rate zones, and records for every lift and activity.
@@ -17,6 +20,7 @@ A personal nutrition, training and health tracker that installs on your phone as
 - **Reminders.** Push notifications for weighing in, each medication dose, finishing your food log, progress photos, the weekly report and check-ins. They skip themselves when the thing is already done.
 - **Smart scale sync.** Scales that write to Apple Health (Eufy, Withings, Renpho and others) can send weigh-ins here through an iPhone Shortcut.
 - **Backups.** The database is backed up every night; 30 days and 6 monthly copies are kept.
+- **More than one person.** Admins add people from **More > Users**. Each person has their own private data; admins can reset passwords, pause or delete accounts but can't see anyone else's logs.
 - **App behavior.** Installable PWA, works offline (changes made offline sync later), light and dark themes, drag-and-drop reordering everywhere, stays signed in for 180 days.
 
 ## Setting it up on Bluehost
@@ -91,7 +95,11 @@ php /home/CPANELUSER/public_html/fit/cron/tick.php
 
 Open the app **from the Home Screen icon** (on iPhone, notifications only work in the installed app, iOS 16.4 or later), go to **More > Reminders and sync**, and tap **Turn on reminders**. Allow notifications when asked, then tap **Send a test**. Turn reminders on separately on each device you want them on. Each reminder's time can be changed there; medication reminders use the dose times in each item's schedule.
 
-### 8. Smart scale (optional)
+### 8. Add other people (optional)
+
+The account made by the installer is an admin. Open **More > Users**, enter a name and username, and tap **Create user**. The app shows a temporary password once; send it with the username. They choose their own password the first time they sign in. Each person turns on their own reminders and connects their own WHOOP account in Settings. If WHOOP refuses someone, check the app's user limits in the WHOOP developer dashboard.
+
+### 9. Smart scale (optional)
 
 For a scale that syncs to Apple Health, such as Eufy (EufyLife > Me > Apple Health):
 
@@ -125,6 +133,7 @@ php -S 127.0.0.1:8080 -t .
 php tests/seed_demo.php                    # optional: 10 weeks of sample data (SQLite only)
 node tests/tdee.test.mjs                   # expenditure engine simulations
 node tests/stats.test.mjs                  # insights, body fat and calendar helpers
+node tests/nutrition.test.mjs              # fill my macros, diet phases, nutrient targets, drink insights
 php tests/parsers_test.php                 # USDA / Open Food Facts / WHOOP parsing
 php tests/api_test.php                     # every API route over HTTP, including database upgrades
 php tests/webpush_test.php                 # push encryption, checked by Node's crypto
@@ -141,9 +150,10 @@ assets/js/tdee.js                          adaptive expenditure and target math
 assets/js/stats.js                         statistics and calendar helpers for Insights and the overviews
 assets/js/sortable.js                      drag to reorder (touch, mouse and keyboard)
 assets/js/push.js                          turning reminders on and off on a device
+assets/js/nutrients.js, fill.js, phases.js nutrient targets, Fill my macros, diet phases
 assets/js/views/                           one file per screen
 api/index.php                              JSON API router (/api/?r=route)
-api/lib/                                   database, auth, foods, WHOOP, health, photos, push, reminders, backups, scale sync
+api/lib/                                   database, auth, users, foods, nutrients and drinks, WHOOP, health, photos, push, reminders, backups, scale sync
 install.php                                one-time setup
 cron/tick.php                              the scheduled task, for cPanel cron
 .github/workflows/deploy.yml               test, then FTPS deploy on push to main
@@ -152,6 +162,7 @@ cron/tick.php                              the scheduled task, for cPanel cron
 ## Security notes
 
 - Passwords are hashed with PHP's `password_hash`. Sign-in and scale-sync attempts are rate-limited per IP.
+- Every request checks that the account still exists and isn't paused. Resetting a password or signing someone out everywhere ends their open sessions too.
 - Sessions use HttpOnly, SameSite cookies. The "stay signed in" token is stored hashed and rotated on every use.
 - Every write request from the app must carry a custom header, which blocks cross-site form attacks. The scale endpoint instead requires its own key, stored hashed.
 - Progress photos and backups are in `data/`, which the web server never serves; photos go only to their signed-in owner.

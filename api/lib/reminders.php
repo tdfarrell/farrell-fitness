@@ -128,7 +128,7 @@ function run_reminders_for(int $uid, int $now): array {
 function run_reminders(?int $now = null): array {
     $now ??= time();
     $out = [];
-    foreach (q_all('SELECT DISTINCT user_id FROM push_subscriptions') as $row) {
+    foreach (q_all('SELECT DISTINCT p.user_id FROM push_subscriptions p JOIN users u ON u.id = p.user_id WHERE u.disabled = 0') as $row) {
         try { $out[$row['user_id']] = run_reminders_for((int) $row['user_id'], $now); }
         catch (Throwable $e) { $out[$row['user_id']] = ['error' => $e->getMessage()]; error_log('[farrell-fitness] reminders: ' . $e->getMessage()); }
     }

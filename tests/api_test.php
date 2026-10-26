@@ -47,7 +47,8 @@ function api(string $route, ?array $body = null, array $query = [], array $opts 
     $ch = curl_init("http://127.0.0.1:$port/api/?" . http_build_query(['r' => $route] + $query));
     $headers = $opts['headers'] ?? ['X-FF-Request: 1', 'Content-Type: application/json'];
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $headers]);
-    if (empty($opts['anonymous'])) curl_setopt_array($ch, [CURLOPT_COOKIEJAR => $jar, CURLOPT_COOKIEFILE => $jar]);
+    $j = $opts['jar'] ?? $jar;
+    if (empty($opts['anonymous'])) curl_setopt_array($ch, [CURLOPT_COOKIEJAR => $j, CURLOPT_COOKIEFILE => $j]);
     if ($body !== null) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body)); }
     $res = curl_exec($ch);
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -313,6 +314,106 @@ check($st === 200 && count($r['foods']) === 2, 'most-logged foods');
 check($st === 200, 'reorder meal plans');
 [, $sm] = api('summary', null, ['from' => $today, 'to' => $today]);
 check(array_key_exists('fiber', $sm['days'][0]), 'summary includes fiber');
+
+/* stage 2: micronutrients */
+[$st, $r] = api('auth/status');
+check($st === 200 && $r['user']['is_admin'] === true && $r['user']['name'] === 'Tim', 'the existing user becomes the first admin');
+$spinach = ['source' => 'usda', 'source_id' => '999001', 'name' => 'Spinach, raw', 'kcal' => 23, 'protein' => 2.9, 'carbs' => 3.6, 'fat' => 0.4, 'fiber' => 2.2, 'sugar' => 0.4, 'sodium' => 79,
+    'micros' => ['iron' => 2.7, 'vit_k' => 483, 'potassium' => 558, 'bogus' => 5]];
+[$st, $r] = api('diary/add', ['date' => $today, 'meal' => 'Lunch', 'food' => $spinach, 'grams' => 200]);
+$sp = $r['entry'] ?? [];
+check($st === 200 && abs(($sp['micros']['iron'] ?? 0) - 5.4) < 0.01 && abs(($sp['micros']['sodium'] ?? 0) - 158) < 0.01 && !isset($sp['micros']['bogus']), 'entry nutrients are scaled from the food, unknown keys dropped');
+[$st, $r] = api('diary/update', ['id' => $sp['id'], 'grams' => 100]);
+check($st === 200 && abs($r['entry']['micros']['vit_k'] - 483) < 0.01, 'changing the amount rescales nutrients');
+[$st, $r] = api('diary/add', ['date' => $today, 'meal' => 'Lunch', 'quick' => ['name' => 'Mystery', 'kcal' => 300]]);
+[$st, $r] = api('nutrients', null, ['date' => $today]);
+check($st === 200 && abs($r['day']['totals']['potassium'] - 558) < 0.01 && $r['day']['totals']['vit_d'] === null && $r['day']['covered'] < $r['day']['entries'], 'nutrient totals: known values add up, unreported ones are unknown, coverage counted');
+check(($r['day']['sources']['iron'][0]['name'] ?? '') === 'Spinach, raw' && $r['week']['days'] >= 1, 'nutrient sources and 7-day average');
+[$st, $r] = api('foods/save', ['food' => ['source' => 'custom', 'name' => 'Label bar', 'kcal' => 400, 'protein' => 20, 'carbs' => 40, 'fat' => 15, 'sodium' => 300, 'micros' => ['sat_fat' => 6, 'calcium' => 200]]]);
+check($st === 200 && $r['food']['micros']['sat_fat'] == 6 && $r['food']['sodium'] == 300, 'custom food keeps label nutrients');
+db_insert('foods', ['user_id' => 1, 'source' => 'usda', 'source_id' => '999002', 'name' => 'Old food', 'kcal' => 100, 'created_at' => time(), 'last_used_at' => time()]);
+[$st, $r] = api('nutrients', null, ['date' => $today]);
+check($r['missing'] === 1, 'saved USDA foods without nutrients are counted for filling in');
+
+/* stage 2: drinks */
+[$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'water', 'amount' => 710]);
+[$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'water', 'amount' => -1000]);
+check($st === 200 && $r['totals']['water'] == 0, 'taking water off never goes below zero');
+api('drinks/add', ['date' => $today, 'kind' => 'water', 'amount' => 3000]);
+api('drinks/add', ['date' => $today, 'kind' => 'caffeine', 'amount' => 95, 'label' => 'Coffee', 'logged_at' => strtotime("$today 08:00")]);
+[$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'caffeine', 'amount' => 200, 'label' => 'Pre-workout', 'logged_at' => strtotime("$today 15:30")]);
+check($st === 200 && $r['totals']['caffeine'] == 295, 'caffeine adds up');
+[$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'alcohol', 'amount' => 1, 'label' => 'Beer', 'kcal' => 150, 'carbs' => 13, 'log_food' => true, 'meal' => 'Snacks']);
+$beer = end($r['drinks']);
+[, $d] = api('diary', null, ['date' => $today]);
+$beerEntry = array_values(array_filter($d['entries'], fn($e) => $e['id'] === $beer['diary_entry_id']))[0] ?? null;
+check($st === 200 && $r['logged_food'] && $beerEntry && $beerEntry['kcal'] == 150 && $beerEntry['carbs'] == 13 && $r['alcohol_week'] >= 1, 'a drink can add its calories to the food log');
+[$st, $r] = api('drinks/delete', ['id' => $beer['id']]);
+check($st === 200 && !q_val('SELECT id FROM diary_entries WHERE id = ?', [$beer['diary_entry_id']]), 'removing the drink removes its food log entry');
+[$st] = api('drinks/add', ['date' => $today, 'kind' => 'soda', 'amount' => 1]);
+[$st2] = api('drinks/add', ['date' => $today, 'kind' => 'caffeine', 'amount' => 5000]);
+check($st === 400 && $st2 === 400, 'unknown drinks and silly amounts are refused');
+[$st, $r] = api('habits/save', ['name' => 'Drink water', 'kind' => 'water', 'slot' => 'day']);
+[, $r] = api('habits', null, ['date' => $today, 'days' => 1]);
+$wh = array_values(array_filter($r['habits'], fn($x) => $x['kind'] === 'water'))[0] ?? null;
+check($wh && $wh['done'] && $wh['value'] == 3000, 'water habit checks itself at the goal');
+[$st, $r] = api('insights/data', null, ['from' => $today]);
+check(($r['days'][$today]['drinks']['late_caffeine'] ?? null) == 200 && $r['days'][$today]['drinks']['caffeine'] == 295, 'insights data includes drinks and caffeine after the cut-off');
+
+/* stage 2: settings for drinks, nutrient targets, phases */
+[$st, $r] = api('settings', ['drinks' => ['water_goal_ml' => 99999, 'caffeine_cutoff' => '25:00', 'show' => ['water', 'beer']], 'nutrient_targets' => ['sodium' => 1800, 'fiber' => 35, 'x y' => 3]]);
+$sx = $r['settings'];
+check($sx['drinks']['water_goal_ml'] == 8000 && $sx['drinks']['caffeine_cutoff'] === '14:00' && $sx['drinks']['show'] === ['water'], 'drink settings are kept in range');
+check($sx['nutrient_targets'] == ['sodium' => 1800, 'fiber' => 35], 'nutrient targets saved, bad keys dropped');
+[$st, $r] = api('settings', ['nutrient_targets' => ['fiber' => 0], 'drinks' => ['show' => ['water', 'caffeine', 'alcohol']]]);
+check($r['settings']['nutrient_targets'] == ['sodium' => 1800], 'a zero clears a nutrient target');
+[$st, $r] = api('settings', ['phases' => ['start' => $today, 'items' => [['type' => 'lose', 'rate_pct' => 9, 'weeks' => 8], ['type' => 'break', 'weeks' => 2, 'rate_pct' => 1], ['type' => 'reverse'], ['type' => 'nonsense']]]]);
+$ph = $r['settings']['phases'];
+check(count($ph['items']) === 4 && $ph['items'][0]['rate_pct'] == 1.5 && $ph['items'][1]['rate_pct'] == 0 && $ph['items'][2]['step_kcal'] === 75 && $ph['items'][3]['type'] === 'maintain' && strlen($ph['items'][0]['id']) > 0, 'diet phases are cleaned up');
+
+/* stage 2: more than one user */
+$jar2 = "$tmp.cookies2";
+[$st, $r] = api('admin/users/create', ['name' => 'Sarah', 'username' => 'Sarah']);
+$sarah = $r['user'] ?? []; $pw = $r['temp_password'] ?? '';
+check($st === 200 && $sarah['username'] === 'sarah' && $sarah['must_change_pw'] && preg_match('/^[a-z]+-[a-z]+-\d{4}$/', $pw), 'admin creates a user with a temporary password');
+[$st] = api('admin/users/create', ['username' => 'SARAH']);
+[$st2] = api('admin/users/create', ['username' => 'no']);
+check($st === 400 && $st2 === 400, 'duplicate and too-short usernames are refused');
+check((int) q_val('SELECT COUNT(*) FROM exercises WHERE user_id = ?', [$sarah['id']]) > 10, 'new user starts with the exercise library');
+[$st, $r] = api('auth/login', ['username' => 'SARAH', 'password' => $pw], [], ['jar' => $jar2]);
+check($st === 200 && $r['user']['must_change_pw'], 'new user signs in (username in any case) and must choose a password');
+[$st] = api('diary', null, ['date' => $today], ['jar' => $jar2]);
+check($st === 403, 'nothing else works until they do');
+[$st] = api('auth/set_password', ['new' => 'short'], [], ['jar' => $jar2]);
+[$st2, $r] = api('auth/set_password', ['new' => 'sarahs-own-password'], [], ['jar' => $jar2]);
+check($st === 400 && $st2 === 200 && !$r['user']['must_change_pw'], 'they set their own password');
+[$st, $r] = api('diary', null, ['date' => $today], ['jar' => $jar2]);
+check($st === 200 && count($r['entries']) === 0, "a new user doesn't see anyone else's food log");
+api('diary/delete', ['id' => $sp['id']], [], ['jar' => $jar2]);
+check((bool) q_val('SELECT id FROM diary_entries WHERE id = ?', [$sp['id']]), "and can't delete someone else's entries");
+[$st] = api('admin/users', null, [], ['jar' => $jar2]);
+check($st === 403, 'members cannot manage users');
+api('drinks/add', ['date' => $today, 'kind' => 'water', 'amount' => 500], [], ['jar' => $jar2]);
+[$st] = api('admin/users/signout', ['id' => $sarah['id']]);
+[$st2] = api('drinks', null, ['date' => $today], ['jar' => $jar2]);
+check($st === 200 && $st2 === 401, 'sign out everywhere ends their open session');
+[$st] = api('admin/users/update', ['id' => $sarah['id'], 'disabled' => true]);
+[$st2, $r] = api('auth/login', ['username' => 'sarah', 'password' => 'sarahs-own-password'], [], ['jar' => $jar2]);
+check($st === 200 && $st2 === 403 && str_contains($r['error'], 'paused'), 'a paused account cannot sign in');
+api('admin/users/update', ['id' => $sarah['id'], 'disabled' => false]);
+[$st, $r] = api('admin/users/reset', ['id' => $sarah['id']]);
+[$st2] = api('auth/login', ['username' => 'sarah', 'password' => $r['temp_password'] ?? ''], [], ['jar' => $jar2]);
+check($st === 200 && $st2 === 200 && q_val('SELECT must_change_pw FROM users WHERE id = ?', [$sarah['id']]) == 1, 'reset password gives a new temporary one');
+[$st] = api('admin/users/update', ['id' => 1, 'is_admin' => false]);
+[$st2] = api('admin/users/update', ['id' => 1, 'disabled' => true]);
+[$st3] = api('admin/users/delete', ['id' => 1, 'confirm' => 'tim']);
+check($st === 400 && $st2 === 400 && $st3 === 400, "an admin can't demote, pause or delete themselves");
+[$st] = api('admin/users/delete', ['id' => $sarah['id'], 'confirm' => 'nope']);
+[$st2, $r] = api('admin/users/delete', ['id' => $sarah['id'], 'confirm' => 'Sarah']);
+check($st === 400 && $st2 === 200 && count($r['users']) === 1, 'deleting needs the username typed');
+check(!q_val('SELECT COUNT(*) FROM drinks WHERE user_id = ?', [$sarah['id']]) && !q_val('SELECT COUNT(*) FROM exercises WHERE user_id = ?', [$sarah['id']]), 'deleting a user deletes their data');
+[$st] = api('drinks', null, ['date' => $today]);
+check($st === 200, 'the admin is still signed in');
 
 /* export */
 [$st, $r] = api('export');

@@ -1,8 +1,9 @@
 // More: everything that isn't a bottom tab.
-import { h, icon, fmt0, timeAgo, relDay, todayISO, toast, relDayLc } from '../ui.js';
+import { h, icon, fmt0, timeAgo, relDay, todayISO, toast, relDayLc, shortDate } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary, fmtW, wUnit } from '../store.js';
 import { pageHead } from '../components.js';
+import { PHASE_TYPES } from '../phases.js';
 
 export async function render(root) {
   await loadSummary();
@@ -45,14 +46,17 @@ export async function render(root) {
       group('Progress', [
         row('#/report', 'report', 'Weekly report', 'This week so far'),
         row('#/insights', 'bulb', 'Insights', 'Patterns across sleep, food and training'),
+        row('#/phases', 'phases', 'Diet phases', state.phase ? `${PHASE_TYPES[state.phase.type].name} now${state.phase.end ? `, until ${shortDate(state.phase.end).split(', ').slice(1).join(', ')}` : ''}` : 'Plan cuts, breaks and reverse diets'),
         row('#/projection', 'target', 'Goal projection', settings.goal.target_kg ? `Goal ${fmtW(settings.goal.target_kg)} ${wUnit()}` : 'When you\'ll reach your goal'),
         row('#/progress', 'progress', 'Progress and check-ins', checkin.due ? 'Your check-in is ready' : settings.program === 'manual' ? 'Week review' : `Next check-in ${relDayLc(checkin.next)}`),
       ]),
       group('App', [
         row('#/whoop', 'whoop', 'WHOOP', summary.whoop.connected ? `Synced ${timeAgo(summary.whoop.last_sync_at)}` : 'Not connected'),
         row('#/settings/sync', 'bell', 'Reminders and sync', 'Notifications, smart scale, backups'),
+        state.user?.is_admin ? row('#/users', 'users', 'Users', 'Add people and manage accounts') : null,
         row('#/settings', 'settings', 'Settings', 'Goals, units, account, data export'),
-      ]),
+      ].filter(Boolean)),
+      h('p', { class: 'small muted', style: { margin: '0 4px' } }, `Signed in as ${state.user?.name || ''} (@${state.user?.username || ''})`),
       h('button', { class: 'btn sm ghost danger', style: { alignSelf: 'flex-start' }, onclick: async () => {
         try { await post('auth/logout', {}); } catch (e) { toast(e.message, 'error'); return; }
         location.hash = '#/login'; location.reload();

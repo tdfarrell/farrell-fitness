@@ -39,6 +39,8 @@ jobs:
         run: php tests/webpush_test.php
       - name: Insights and stats
         run: node tests/stats.test.mjs
+      - name: Nutrition, phases and drink insights
+        run: node tests/nutrition.test.mjs
 
   deploy:
     needs: test

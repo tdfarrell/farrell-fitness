@@ -105,7 +105,14 @@ function route_plans_log(int $uid, string $m) {
     $n = 0;
     foreach (json_decode($row['items'], true) ?: [] as $it) {
         if ($only && $it['meal'] !== $only) continue;
+        // Nutrients come from the saved food, scaled to the planned amount.
+        $micros = null;
+        if (!empty($it['food_id']) && !empty($it['grams'])) {
+            $food = q_one('SELECT * FROM foods WHERE id = ? AND user_id = ?', [(int) $it['food_id'], $uid]);
+            if ($food) $micros = entry_micros($food, (float) $it['grams']);
+        }
         db_insert('diary_entries', [
+            'micros' => $micros,
             'user_id' => $uid, 'date' => $date, 'meal' => $it['meal'], 'food_id' => $it['food_id'] ?? null,
             'name' => $it['name'], 'brand' => $it['brand'] ?? null, 'grams' => $it['grams'] ?? null,
             'quantity' => $it['quantity'] ?? 1, 'portion_label' => $it['portion_label'] ?? null,

@@ -10,6 +10,7 @@ const OZ = 28.3495;
 export async function render(root, params) {
   // #/food is the overview; #/food/diary is today's log; #/food/YYYY-MM-DD is that day's log.
   if (!params[0]) return (await import('./foodhome.js')).render(root);
+  if (params[0] === 'nutrients') return (await import('./micros.js')).render(root, params.slice(1));
   const date = /^\d{4}-\d{2}-\d{2}$/.test(params[0] || '') ? params[0] : todayISO();
   await loadSummary();
   const { targets, settings } = state;
@@ -30,6 +31,13 @@ export async function render(root, params) {
   const statusLabels = { auto: 'Counted if anything is logged', complete: 'Logged completely', fasted: 'Fasted (0 kcal)', exclude: 'Left out of expenditure' };
   const statusBtn = h('button', { class: 'btn sm ghost', onclick: () => openDayStatus(date, data.status, refresh) },
     date < todayISO() ? `Day: ${statusLabels[data.status].toLowerCase()}` : 'Day options');
+  const remaining = { kcal: targets.kcal - tot.kcal, protein: targets.protein - tot.protein, carbs: targets.carbs - tot.carbs, fat: targets.fat - tot.fat };
+  const fillBtn = date >= addDays(todayISO(), -1) ? h('button', { class: 'btn sm', onclick: async () => {
+    const { openFillMacros } = await import('./fillmacros.js');
+    const { guessMeal } = await import('./today.js');
+    openFillMacros({ date, meal: date === todayISO() ? guessMeal(settings) : meals[meals.length - 1], remaining, onDone: refresh });
+  } }, icon('spark', 16), 'Fill my macros') : null;
+  const nutBtn = h('a', { class: 'btn sm', href: `#/food/nutrients/${date}` }, 'Nutrients');
 
   const mealCards = meals.map(meal => {
     const list = entries.filter(e => e.meal === meal);
@@ -60,7 +68,7 @@ export async function render(root, params) {
     h('div', { class: 'stack' },
       foodSwitch('diary'),
       totalsCard,
-      h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '-6px' } }, statusBtn),
+      h('div', { class: 'diary-tools' }, h('div', { class: 'row', style: { gap: '8px' } }, fillBtn, nutBtn), statusBtn),
       h('div', { class: 'diary-grid' }, mealCards)));
 }
 
@@ -315,6 +323,10 @@ export function openQuickAdd({ date, meal, onDone, target = null }) {
   });
 }
 
+// Optional label nutrients on your own foods: [key, field label]. Sugar and sodium are handled separately.
+const EXTRA = [['sat_fat', 'Saturated fat (g)'], ['added_sugar', 'Added sugar (g)'], ['cholesterol', 'Cholesterol (mg)'], ['potassium', 'Potassium (mg)'],
+  ['calcium', 'Calcium (mg)'], ['iron', 'Iron (mg)'], ['vit_d', 'Vitamin D (mcg)'], ['vit_c', 'Vitamin C (mg)']];
+
 /** Create or edit your own food. Values are entered per serving and stored per 100 g. */
 export function openFoodEditor({ food = null, barcode = null, onSaved } = {}) {
   const serving = food?.portions?.[0] || { label: '1 serving', grams: 100 };
@@ -335,6 +347,9 @@ export function openFoodEditor({ food = null, barcode = null, onSaved } = {}) {
         barcode: f.querySelector('#cf-bar').value || barcode,
         kcal: ((Number.isNaN(kcalIn) ? p * 4 + c * 4 + fa * 9 : kcalIn) * k), protein: p * k, carbs: c * k, fat: fa * k,
         fiber: Number.isNaN(val(f, 'cf-fib')) ? null : val(f, 'cf-fib') * k,
+        sugar: Number.isNaN(val(f, 'cf-sugar')) ? null : val(f, 'cf-sugar') * k,
+        sodium: Number.isNaN(val(f, 'cf-sodium')) ? null : val(f, 'cf-sodium') * k,
+        micros: Object.fromEntries(EXTRA.map(([key]) => [key, val(f, 'cf-' + key)]).filter(([, v]) => !Number.isNaN(v)).map(([key, v]) => [key, v * k])),
         portions: [{ label: f.querySelector('#cf-label').value || '1 serving', grams }],
       } };
       try {
@@ -353,6 +368,12 @@ export function openFoodEditor({ food = null, barcode = null, onSaved } = {}) {
       h('div', { class: 'grid-2' }, numField('Calories', 'cf-kcal', String(per('kcal'))), numField('Protein (g)', 'cf-p', String(per('protein')))),
       h('div', { class: 'grid-2' }, numField('Carbs (g)', 'cf-c', String(per('carbs'))), numField('Fat (g)', 'cf-f', String(per('fat')))),
       numField('Fiber (g, optional)', 'cf-fib', food?.fiber != null ? String(per('fiber')) : ''),
+      h('details', { class: 'more-nutrients', open: !!(food?.sodium != null || food?.sugar != null || (food?.micros && Object.keys(food.micros).length)) },
+        h('summary', null, 'More nutrients (optional)'),
+        h('div', { class: 'grid-2', style: { marginTop: '10px' } },
+          numField('Sugar (g)', 'cf-sugar', food?.sugar != null ? String(per('sugar')) : ''),
+          numField('Sodium (mg)', 'cf-sodium', food?.sodium != null ? String(per('sodium')) : ''),
+          ...EXTRA.map(([key, label]) => numField(label, 'cf-' + key, food?.micros?.[key] != null ? String(+(food.micros[key] * serving.grams / 100).toFixed(1)) : '')))),
       h('button', { class: 'btn primary block', type: 'submit' }, 'Save food'),
       food?.id ? h('button', { class: 'btn block danger', type: 'button', onclick: async () => {
         if (!(await confirmSheet('Delete food?', 'It disappears from your foods. Past log entries keep their numbers.'))) return;
@@ -398,7 +419,8 @@ export function openRecipeEditor({ recipe = null, onSaved } = {}) {
               box.replaceChildren(btn, amountEditor(f, { submitLabel: 'Add', onSubmit: async (amt) => {
                 let id = f.id;
                 if (!id) { id = (await post('foods/save', { food: { ...f, source: f.source } })).food?.id; }
-                ingredients.push({ food_id: id, name: f.name, grams: amt.grams, kcal: f.kcal, protein: f.protein, carbs: f.carbs, fat: f.fat, fiber: f.fiber });
+                ingredients.push({ food_id: id, name: f.name, grams: amt.grams, kcal: f.kcal, protein: f.protein, carbs: f.carbs, fat: f.fat, fiber: f.fiber,
+                  micros: { ...(f.micros || {}), ...(f.sugar != null ? { sugar: f.sugar } : {}), ...(f.sodium != null ? { sodium: f.sodium } : {}) } });
                 qIn.value = ''; results.replaceChildren(); drawIngs();
               } }));
             } }, h('span', { class: 'title' }, f.name), h('span', { class: 'small muted' }, [f.kind, f.brand, `${fmt0(f.kcal)} kcal per 100 g`].filter(Boolean).join(', ')));
@@ -416,9 +438,18 @@ export function openRecipeEditor({ recipe = null, onSaved } = {}) {
         const t = drawIngs();
         const sv = parseFloat(servIn.value) || 1;
         const k = 100 / t.g;
+        // Nutrients per 100 g of the dish, from the ingredients that list them.
+        const m = {};
+        let fiber = null;
+        for (const i of ingredients) {
+          for (const [key, v] of Object.entries(i.micros || {})) if (v != null) m[key] = (m[key] || 0) + v * i.grams / 100;
+          if (i.fiber != null) fiber = (fiber || 0) + i.fiber * i.grams / 100;
+        }
+        const { sugar, sodium, ...micros } = Object.fromEntries(Object.entries(m).map(([key, v]) => [key, v * k]));
         const food = {
           id: recipe?.id, source: 'recipe', source_id: recipe?.source_id, name,
           kcal: t.kcal * k, protein: t.p * k, carbs: t.c * k, fat: t.f * k,
+          fiber: fiber == null ? null : fiber * k, sugar: sugar ?? null, sodium: sodium ?? null, micros,
           portions: [{ label: '1 serving', grams: +(t.g / sv).toFixed(1) }, { label: 'whole recipe', grams: t.g }],
           recipe: { servings: sv, ingredients },
         };

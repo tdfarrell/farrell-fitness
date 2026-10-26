@@ -6,6 +6,7 @@ import { chart, sparkline, dateTicks } from '../charts.js';
 import { openWeightSheet } from './weight.js';
 import { openAddFood } from './food.js';
 import { habitRow } from './habits.js';
+import { drinksCard } from './drinks.js';
 
 export async function render(root) {
   await loadSummary();
@@ -18,11 +19,12 @@ export async function render(root) {
   const recent7 = days.slice(-7).map(d => d.whoop?.recovery).filter(v => v != null);
   const avgRec = recent7.length ? recent7.reduce((a, b) => a + b, 0) / recent7.length : null;
 
-  const [workoutsRes, hb, meds, jr] = await Promise.all([
+  const [workoutsRes, hb, meds, jr, drinks] = await Promise.all([
     get('workouts', { from: days[Math.max(0, days.length - 14)].date, to: today }).catch(() => ({ workouts: [], whoop: [] })),
     get('habits', { date: today, days: 7 }).catch(() => null),
     get('health/items', { date: today }).catch(() => null),
     get('journal', { date: today }).catch(() => null),
+    settings.drinks?.show?.length ? get('drinks', { date: today }).catch(() => null) : null,
   ]);
   const s28 = model.series.slice(-28);
   const s56 = model.series.slice(-56);
@@ -129,7 +131,7 @@ export async function render(root) {
     h('a', { class: 'btn sm', href: '#/train/new', style: { alignSelf: 'flex-start' } }, 'Start workout'));
 
   // Habits: progress plus the next few that aren't done.
-  const habitsCard = hb && hb.habits.length ? (() => {
+  const buildHabits = () => hb && hb.habits.length ? (() => {
     const list = hb.habits;
     const done = list.filter(x => x.done).length;
     const todo = list.filter(x => !x.done).slice(0, 4);
@@ -139,6 +141,7 @@ export async function render(root) {
       todo.length ? h('div', { class: 'list' }, todo.map(x => habitRow(x, today, () => rerender(root))))
         : h('p', { class: 'note' }, 'Everything is done for today.'));
   })() : null;
+  const habitsCard = buildHabits();
 
   // Meds and supplements: one pill per dose due today, tap to mark taken.
   const PART = { morning: 'morning', midday: 'midday', evening: 'evening', bedtime: 'bedtime', any: '' };
@@ -154,6 +157,20 @@ export async function render(root) {
       h('div', { class: 'card-head', style: { alignItems: 'center' } }, h('h2', null, 'Meds and supplements'), h('a', { href: '#/health/meds', style: { fontWeight: 600, fontSize: '14px' } }, 'All')),
       box);
   })() : null;
+
+  // Water, caffeine and alcohol. A water habit, if there is one, updates when water changes.
+  const drinksEl = drinks ? drinksCard(today, drinks, {
+    onRefresh: () => rerender(root),
+    onChange: () => {
+      if (!hb?.habits.some(x => x.kind === 'water')) return;
+      get('habits', { date: today, days: 7 }).then(r => {
+        hb.habits = r.habits;
+        const old = root.querySelector('section[aria-label="Habits"]');
+        const fresh = buildHabits();
+        if (old && fresh) old.replaceWith(fresh);
+      }).catch(() => {});
+    },
+  }) : null;
 
   const tw = tday.whoop;
   const stepGoal = hb?.habits.find(x => x.kind === 'steps')?.target || 10000;
@@ -183,6 +200,7 @@ export async function render(root) {
       checkin.due ? checkinLink : null,
       h('div', { class: 'row' }, kcalCard, h('div', { class: 'grow-2', style: { display: 'flex' } }, whoopCard(w, summary.whoop, avgRec))),
       habitsCard || medsCard ? h('div', { class: 'row' }, habitsCard, medsCard) : null,
+      drinksEl ? h('div', { class: 'row' }, drinksEl) : null,
       smallCards,
       h('div', { class: 'row' }, stepsCard ? h('div', { style: { flex: '1 1 260px', display: 'flex', flexDirection: 'column' } }, stepsCard) : null, journalCard),
       h('div', { class: 'row desk-only' }, weightChart, expChart),

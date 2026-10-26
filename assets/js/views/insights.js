@@ -12,6 +12,8 @@ let span = 90;
 
 /** One row per day with everything the insights look at. Exported for tests. */
 export function buildDays(summaryDays, extra, today) {
+  // Drinks count as zero on days with nothing logged, but only once you've started using the counters.
+  const firstDrink = Object.keys(extra).filter(k => extra[k].drinks).sort()[0] || null;
   return summaryDays.map(d => {
     const x = extra[d.date] || {};
     const w = d.whoop || {};
@@ -22,6 +24,9 @@ export function buildDays(summaryDays, extra, today) {
       sleep: w.sleep_hours ?? null, recovery: w.recovery ?? null, hrv: w.hrv ?? null, strain: w.strain ?? null, steps: w.step_count ?? null,
       lifted: !!x.lifts?.length, cardio: !!x.cardio?.length,
       mood: x.journal?.mood ?? null, energy: x.journal?.energy ?? null, stress: x.journal?.stress ?? null,
+      ...(firstDrink && d.date >= firstDrink && d.date < today ? {
+        alcohol: x.drinks?.alcohol || 0, caffeine: x.drinks?.caffeine || 0, lateCaffeine: x.drinks?.late_caffeine || 0, water: x.drinks?.water || 0,
+      } : { alcohol: null, caffeine: null, lateCaffeine: null, water: null }),
     };
   });
 }
@@ -154,6 +159,51 @@ export function findInsights(days) {
     }
   }
 
+  // 10. Alcohol and next-morning HRV.
+  {
+    const none = [], two = [];
+    days.forEach((d, i) => { const n = next(i); if (d.alcohol == null || n?.hrv == null) return; if (d.alcohol === 0) none.push(n.hrv); else if (d.alcohol >= 2) two.push(n.hrv); });
+    if (two.length >= 3 && none.length >= 3) {
+      const g = compareGroups(two, none);
+      add({ id: 'alcohol_hrv', area: 'Drinks and recovery',
+        title: Math.abs(g.diff) < 2 ? 'Next-morning HRV is about the same after 2 or more drinks as after none.'
+          : `After 2 or more drinks, your HRV averages ${fmt0(Math.abs(g.diff))} ms ${g.diff < 0 ? 'lower' : 'higher'} the next morning.`,
+        detail: `${two.length} nights after 2+ drinks, ${none.length} after none, HRV from WHOOP`,
+        stat: { d: g.d, p: g.p, n: g.na + g.nb }, effect: Math.abs(g.d || 0) / 2,
+        chart: { type: 'bars', fmt: (v) => `${fmt0(v)} ms`, groups: [{ label: '2+ drinks', value: g.ma }, { label: 'No drinks', value: g.mb }], label: `Average next-morning HRV: ${fmt0(g.ma)} ms after 2 or more drinks, ${fmt0(g.mb)} ms after none` } });
+    }
+  }
+
+  // 11. Any alcohol and next-day recovery.
+  {
+    const none = [], some = [];
+    days.forEach((d, i) => { const n = next(i); if (d.alcohol == null || n?.recovery == null) return; (d.alcohol > 0 ? some : none).push(n.recovery); });
+    if (some.length >= 3 && none.length >= 3) {
+      const g = compareGroups(some, none);
+      add({ id: 'alcohol_recovery', area: 'Drinks and recovery',
+        title: Math.abs(g.diff) < 2 ? 'Recovery is about the same the day after drinking as after a dry day.'
+          : `Recovery is ${fmt0(Math.abs(g.diff))} points ${g.diff < 0 ? 'lower' : 'higher'} the day after you drink than after a dry day.`,
+        detail: `${some.length} days after drinking, ${none.length} after none`,
+        stat: { d: g.d, p: g.p, n: g.na + g.nb }, effect: Math.abs(g.d || 0) / 2,
+        chart: { type: 'bars', fmt: (v) => `${fmt0(v)}%`, groups: [{ label: 'After drinking', value: g.ma }, { label: 'Dry days', value: g.mb }], label: `Average next-day recovery: ${fmt0(g.ma)}% after drinking, ${fmt0(g.mb)}% after none` } });
+    }
+  }
+
+  // 12. Caffeine after your cut-off and that night's sleep.
+  {
+    const late = [], ok = [];
+    days.forEach((d, i) => { const n = next(i); if (d.lateCaffeine == null || n?.sleep == null) return; (d.lateCaffeine > 0 ? late : ok).push(n.sleep); });
+    if (late.length >= 3 && ok.length >= 3) {
+      const g = compareGroups(late, ok);
+      add({ id: 'caffeine_sleep', area: 'Drinks and sleep',
+        title: Math.abs(g.diff) < 0.1 ? 'Caffeine after your cut-off makes little difference to how long you sleep.'
+          : `On days with caffeine after your cut-off, you sleep about ${fmt0(Math.abs(g.diff) * 60)} minutes ${g.diff < 0 ? 'less' : 'longer'} that night.`,
+        detail: `${late.length} days with late caffeine, ${ok.length} without, sleep from WHOOP`,
+        stat: { d: g.d, p: g.p, n: g.na + g.nb }, effect: Math.abs(g.d || 0) / 2,
+        chart: { type: 'bars', fmt: (v) => `${fmt1(v)}h`, groups: [{ label: 'Late caffeine', value: g.ma }, { label: 'None late', value: g.mb }], label: `Average sleep: ${fmt1(g.ma)} hours after late caffeine, ${fmt1(g.mb)} without` } });
+    }
+  }
+
   return out.sort((a, b) => STRENGTH_RANK[b.strength] - STRENGTH_RANK[a.strength] || b.effect - a.effect);
 }
 
@@ -203,7 +253,7 @@ export async function render(root) {
   const waiting = [
     !days.some(d => d.sleep != null) ? 'Connect WHOOP for sleep, recovery, strain and steps.' : null,
     days.filter(d => d.mood != null).length < 5 ? 'Write a few journal entries to see how mood and stress line up with sleep and HRV.' : null,
-    'Alcohol and caffeine patterns arrive with the drink counters in the next update.',
+    !days.some(d => d.alcohol != null) ? 'Log drinks on Today to see how alcohol and late caffeine line up with sleep, HRV and recovery.' : null,
   ].filter(Boolean);
 
   root.replaceChildren(

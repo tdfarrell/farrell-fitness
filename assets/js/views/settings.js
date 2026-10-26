@@ -87,6 +87,9 @@ export async function render(root, params = []) {
       h('h2', null, 'Goal and targets'),
       h('div', { class: 'form-grid' }, field('Goal', goalSel), h('label', { class: 'field', for: 'st-rate' }, 'Rate', rateSel, rateHintEl)),
       field('How targets are set', progSel),
+      s.phases?.items?.length
+        ? h('p', { class: 'banner info' }, state.phase ? 'Your diet phases set the goal and rate for check-ins while the plan runs. ' : 'Your diet phases take over from this goal while the plan runs. ', h('a', { href: '#/phases' }, 'Edit diet phases'))
+        : h('a', { class: 'small', href: '#/phases', style: { fontWeight: 600 } }, 'Plan diet phases: cuts, breaks and reverse diets'),
       manualBox,
       h('div', { class: 'form-grid' },
         field(`Protein (g per ${imperial() ? 'lb' : 'kg'} of body weight)`, inp('st-prot', protDisplay, { inputmode: 'decimal' }), imperial() ? '0.7 to 1.0 is typical when training' : '1.6 to 2.2 is typical when training'),
@@ -147,7 +150,7 @@ export async function render(root, params = []) {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 
   root.replaceChildren(
-    pageHead(state.user ? `Signed in as ${state.user.username}` : '', 'Settings'),
+    pageHead(state.user ? `Signed in as ${state.user.name} (@${state.user.username})` : '', 'Settings'),
     h('div', { class: 'stack', style: { maxWidth: '820px' } },
       h('a', { class: 'linkcard', href: '#/settings/sync' },
         h('span', { style: { display: 'flex', alignItems: 'center', gap: '14px' } },
@@ -155,6 +158,12 @@ export async function render(root, params = []) {
           h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, h('span', { style: { fontWeight: 600 } }, 'Reminders and sync'),
             h('span', { class: 'small muted' }, 'Notifications, smart scale, backups'))),
         icon('right', 20)),
+      state.user?.is_admin ? h('a', { class: 'linkcard', href: '#/users' },
+        h('span', { style: { display: 'flex', alignItems: 'center', gap: '14px' } },
+          h('span', { class: 'journal-ic', 'aria-hidden': 'true' }, icon('users')),
+          h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, h('span', { style: { fontWeight: 600 } }, 'Users'),
+            h('span', { class: 'small muted' }, 'Add people and manage accounts'))),
+        icon('right', 20)) : null,
       form,
       whoopSec,
       !standalone ? h('section', { class: 'card', 'aria-label': 'Install' },

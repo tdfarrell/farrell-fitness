@@ -236,7 +236,7 @@ function whoop_status(int $uid): array {
 /** Sync every connected account (cron). */
 function run_whoop_cron(): array {
     $out = [];
-    foreach (q_all('SELECT user_id FROM whoop_tokens') as $r) {
+    foreach (q_all('SELECT t.user_id FROM whoop_tokens t JOIN users u ON u.id = t.user_id WHERE u.disabled = 0') as $r) {
         try { $out[$r['user_id']] = whoop_sync((int) $r['user_id']); }
         catch (Throwable $e) { $out[$r['user_id']] = ['error' => $e->getMessage()]; }
     }

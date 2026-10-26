@@ -120,5 +120,14 @@ $r = q_one('SELECT * FROM whoop_workouts WHERE whoop_id = ?', ['w-uuid-2']);
 check($r && $r['distance_m'] == 6598.2 && $r['altitude_gain_m'] == 41.5 && json_decode($r['zones'], true) === [0, 120, 360, 840, 720, 180], 'WHOOP: run distance, elevation and heart rate zones');
 check($w['distance_m'] === null && $w['zones'] === null, 'WHOOP: lifting has no distance or zones');
 
+// Micronutrients, both USDA shapes, and Open Food Facts units (grams per 100 g) converted to mg and mcg.
+$mic = normalize_usda(['fdcId' => 7, 'description' => 'SPINACH', 'dataType' => 'SR Legacy', 'foodNutrients' => [
+    ['nutrientId' => 1008, 'value' => 23], ['nutrientId' => 1089, 'value' => 2.71], ['nutrient' => ['id' => 1185, 'number' => '430'], 'amount' => 482.9],
+    ['nutrientNumber' => '435', 'value' => 194], ['nutrientId' => 1258, 'value' => 0.063]]]);
+check($mic['micros'] == ['sat_fat' => 0.063, 'iron' => 2.71, 'vit_k' => 482.9, 'folate' => 194.0], 'USDA: micronutrients from ids and numbers');
+check(normalize_usda($branded)['micros'] === null, 'USDA: no micronutrients is null, not an empty list');
+check(clean_micros(['iron' => '3', 'vit_c' => -1, 'x' => 2]) === ['iron' => 3.0], 'micronutrients cleaned: numbers only, known keys only');
+check(json_decode(entry_micros(['sugar' => 10, 'sodium' => null, 'micros' => '{"calcium":120}'], 50), true) == ['sugar' => 5, 'calcium' => 60], 'entry nutrients scaled to grams eaten');
+
 echo $fails ? "\n$fails FAILED\n" : "\nAll parser tests passed\n";
 exit($fails ? 1 : 0);

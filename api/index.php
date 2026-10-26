@@ -18,6 +18,9 @@ require __DIR__ . '/lib/push.php';
 require __DIR__ . '/lib/reminders.php';
 require __DIR__ . '/lib/sync.php';
 require __DIR__ . '/lib/report.php';
+require __DIR__ . '/lib/nutrition.php';
+require __DIR__ . '/lib/seed.php';
+require __DIR__ . '/lib/admin.php';
 
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
@@ -40,7 +43,7 @@ try {
 
     if ($route === 'auth/status') {
         $uid = current_user_id();
-        json_out(['user' => $uid ? q_one('SELECT id, username FROM users WHERE id = ?', [$uid]) : null]);
+        json_out(['user' => $uid ? auth_user_out(session_user($uid)) : null]);
         exit;
     }
     if ($route === 'auth/login') {
@@ -51,6 +54,8 @@ try {
     if ($route === 'auth/logout') { logout(); json_out(['ok' => true]); exit; }
 
     $uid = require_user();
+    // Someone signed in with a temporary password has to choose their own first.
+    if ($route !== 'auth/set_password' && (int) q_val('SELECT must_change_pw FROM users WHERE id = ?', [$uid])) fail(403, 'Choose a new password to continue');
     $handler = 'route_' . str_replace(['/', '-'], '_', $route);
     if ($route === '' || !preg_match('/^[a-z_\/-]+$/', $route) || !function_exists($handler)) fail(404, 'Unknown route');
     json_out($handler($uid, $method));
@@ -69,9 +74,28 @@ function route_auth_password(int $uid, string $m) {
     $hash = q_val('SELECT password_hash FROM users WHERE id = ?', [$uid]);
     if (!password_verify($cur, $hash)) fail(400, 'Current password is incorrect');
     if (strlen($new) < 10) fail(400, 'New password must be at least 10 characters');
-    db_update('users', ['password_hash' => password_hash($new, PASSWORD_DEFAULT)], ['id' => $uid]);
-    q('DELETE FROM auth_tokens WHERE user_id = ?', [$uid]);
+    set_own_password($uid, $new);
     return ['ok' => true];
+}
+
+/** Saves a new password, signs out every other device and keeps this one signed in. */
+function set_own_password(int $uid, string $new): void {
+    if (strlen($new) < 10) fail(400, 'New password must be at least 10 characters');
+    db_update('users', ['password_hash' => password_hash($new, PASSWORD_DEFAULT), 'must_change_pw' => 0], ['id' => $uid]);
+    end_sessions($uid);
+    $u = session_user($uid);
+    begin_session($u);
+    issue_remember_token($uid);
+}
+
+/** After signing in with a temporary password: choose your own, without retyping the temporary one. */
+function route_auth_set_password(int $uid, string $m) {
+    if (!(int) q_val('SELECT must_change_pw FROM users WHERE id = ?', [$uid])) fail(400, 'Change your password in Settings');
+    $new = (string) param('new', '');
+    $u = q_one('SELECT username FROM users WHERE id = ?', [$uid]);
+    if (strcasecmp($new, $u['username']) === 0) fail(400, "Your password can't be your username");
+    set_own_password($uid, $new);
+    return ['user' => auth_user_out(session_user($uid))];
 }
 
 function route_settings(int $uid, string $m) {
@@ -84,6 +108,7 @@ function route_settings(int $uid, string $m) {
 function entry_out(array $e): array {
     foreach (['id', 'food_id'] as $k) $e[$k] = $e[$k] === null ? null : (int) $e[$k];
     foreach (['grams', 'quantity', 'kcal', 'protein', 'carbs', 'fat', 'fiber'] as $k) $e[$k] = $e[$k] === null ? null : (float) $e[$k];
+    $e['micros'] = !empty($e['micros']) ? json_decode($e['micros'], true) : null;
     unset($e['user_id']);
     return $e;
 }
@@ -119,7 +144,7 @@ function route_diary_add(int $uid, string $m) {
             'grams' => null, 'quantity' => 1, 'portion_label' => null,
             'kcal' => $n('kcal') ?: ($n('protein') * 4 + $n('carbs') * 4 + $n('fat') * 9),
             'protein' => $n('protein'), 'carbs' => $n('carbs'), 'fat' => $n('fat'), 'fiber' => null,
-            'created_at' => time(),
+            'micros' => null, 'created_at' => time(),
         ]);
         return ['entry' => entry_out(q_one('SELECT * FROM diary_entries WHERE id = ?', [$id]))];
     }
@@ -134,6 +159,7 @@ function route_diary_add(int $uid, string $m) {
         'kcal' => round($f['kcal'] * $k, 1), 'protein' => round($f['protein'] * $k, 1),
         'carbs' => round($f['carbs'] * $k, 1), 'fat' => round($f['fat'] * $k, 1),
         'fiber' => $f['fiber'] === null ? null : round($f['fiber'] * $k, 1),
+        'micros' => entry_micros($f, $grams),
         'created_at' => time(),
     ]);
     q('UPDATE foods SET use_count = use_count + 1, last_used_at = ? WHERE id = ?', [time(), $f['id']]);
@@ -152,6 +178,11 @@ function route_diary_update(int $uid, string $m) {
         $ratio = $grams / $e['grams'];
         foreach (['kcal', 'protein', 'carbs', 'fat', 'fiber'] as $k) {
             if ($e[$k] !== null) $data[$k] = round($e[$k] * $ratio, 1);
+        }
+        if (!empty($e['micros'])) {
+            $mm = json_decode($e['micros'], true) ?: [];
+            foreach ($mm as $mk => $mv) $mm[$mk] = round($mv * $ratio, 3);
+            $data['micros'] = json_encode($mm);
         }
         $data['grams'] = $grams;
         $data['quantity'] = opt_num('quantity', (float) $e['quantity']);
@@ -527,10 +558,10 @@ function route_export(int $uid, string $m) {
     return [
         'exported_at' => date('c'),
         'settings' => get_settings($uid),
-        'diary' => $t('SELECT date, meal, name, brand, grams, quantity, portion_label, kcal, protein, carbs, fat, fiber FROM diary_entries WHERE user_id = ? ORDER BY date, id'),
+        'diary' => $t('SELECT date, meal, name, brand, grams, quantity, portion_label, kcal, protein, carbs, fat, fiber, micros FROM diary_entries WHERE user_id = ? ORDER BY date, id'),
         'days' => $t('SELECT date, status, note FROM days WHERE user_id = ? ORDER BY date'),
         'weights' => $t('SELECT date, weight_kg, body_fat, source FROM weights WHERE user_id = ? ORDER BY date'),
-        'foods' => $t('SELECT source, source_id, name, brand, barcode, kcal, protein, carbs, fat, fiber, sugar, sodium, portions, recipe FROM foods WHERE user_id = ? AND archived = 0'),
+        'foods' => $t('SELECT source, source_id, name, brand, barcode, kcal, protein, carbs, fat, fiber, sugar, sodium, micros, portions, recipe FROM foods WHERE user_id = ? AND archived = 0'),
         'exercises' => $t('SELECT id, name, muscle, equipment FROM exercises WHERE user_id = ?'),
         'workouts' => array_map(fn($w) => workout_out($w), $t('SELECT * FROM workouts WHERE user_id = ? ORDER BY date')),
         'checkins' => $t('SELECT date, expenditure, trend_kg, kcal, protein, carbs, fat FROM checkins WHERE user_id = ? ORDER BY date'),

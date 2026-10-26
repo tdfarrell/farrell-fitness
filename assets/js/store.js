@@ -2,6 +2,7 @@
 import { get } from './api.js';
 import { computeModel, currentTargets, checkinStatus } from './tdee.js';
 import { todayISO } from './ui.js';
+import { resolvePhases, phaseOn, proposeTargets } from './phases.js';
 
 export const state = {
   user: null,
@@ -10,6 +11,8 @@ export const state = {
   model: null,
   targets: null,
   checkin: null,
+  phases: [],
+  phase: null,
   stale: true,
 };
 
@@ -23,8 +26,16 @@ export async function loadSummary(force = false) {
   state.summary = s;
   state.settings = s.settings;
   state.model = computeModel(s.days, s.settings, today);
+  state.phases = resolvePhases(s.settings.phases, { series: state.model.series, trendKg: state.model.trendKg, expenditure: state.model.expenditure, checkins: s.checkins, today });
+  state.phase = phaseOn(state.phases, today);
   state.targets = currentTargets(state.model, s.settings, s.checkins, today);
+  if (state.targets.source === 'estimate') state.targets = { ...proposeTargets(state.model, s.settings, s.checkins, today, state.phases), source: 'estimate' };
   state.checkin = checkinStatus(s.checkins, s.settings, today);
+  // A new phase starting makes a check-in due, so targets move with the plan.
+  const ph = state.phase;
+  if (ph && s.settings.program !== 'manual' && s.checkins[0] && s.checkins[0].date < ph.start && s.checkins[0].detail?.phase_id !== ph.id) {
+    state.checkin = { ...state.checkin, due: true, phaseStarted: ph };
+  }
   state.stale = false;
   applyTheme();
   return state;

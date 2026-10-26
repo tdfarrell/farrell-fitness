@@ -128,11 +128,11 @@ export function computeModel(days, settings, today) {
 }
 
 /** Daily targets from an expenditure estimate, trend weight and goal settings. */
-export function targetsFor(expenditure, trendKg, settings) {
+export function targetsFor(expenditure, trendKg, settings, kcalOverride = null) {
   const g = settings.goal || {};
   const sign = g.type === 'lose' ? -1 : g.type === 'gain' ? 1 : 0;
   const rateKgWeek = sign * ((g.rate_pct || 0) / 100) * trendKg;
-  let kcal = expenditure + (rateKgWeek * KCAL_PER_KG) / 7;
+  let kcal = kcalOverride ?? expenditure + (rateKgWeek * KCAL_PER_KG) / 7;
   kcal = Math.max(kcal, 1200, expenditure * 0.6);
   kcal = Math.round(kcal / 5) * 5;
 

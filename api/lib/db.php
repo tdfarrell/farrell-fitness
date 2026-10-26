@@ -406,6 +406,18 @@ function schema_sql(string $driver): array {
             last_used_at INT,
             uses INT NOT NULL DEFAULT 0
         )",
+        // Added in schema version 4.
+        "drinks (
+            id $pk,
+            user_id INT NOT NULL,
+            date VARCHAR(10) NOT NULL,
+            kind VARCHAR(16) NOT NULL,
+            amount DOUBLE NOT NULL,
+            label VARCHAR(60),
+            kcal DOUBLE,
+            diary_entry_id INT,
+            logged_at INT NOT NULL
+        )",
     ];
     $sql = array_map(fn($x) => "CREATE TABLE IF NOT EXISTS $x$tail", $t);
     $idx = [
@@ -420,6 +432,7 @@ function schema_sql(string $driver): array {
         'habit_logs_user_date' => 'habit_logs (user_id, date)',
         'med_doses_user_date' => 'med_doses (user_id, date)',
         'reminder_log_date' => 'reminder_log (date)',
+        'drinks_user_date' => 'drinks (user_id, date)',
     ];
     foreach ($idx as $name => $on) {
         $sql[] = $driver === 'sqlite' ? "CREATE INDEX IF NOT EXISTS $name ON $on" : "CREATE INDEX $name ON $on";
@@ -428,7 +441,7 @@ function schema_sql(string $driver): array {
 }
 
 // Bump when the schema changes. Existing databases are brought up to date on the next request.
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** Columns added after the first release: [table, column, type]. */
 function added_columns(): array {
@@ -444,6 +457,15 @@ function added_columns(): array {
         ['health_items', 'remind', 'INT NOT NULL DEFAULT 1'],
         ['health_items', 'refill_remind', 'INT NOT NULL DEFAULT 1'],
         ['weights', 'source', 'VARCHAR(16)'],
+        // Version 4: micronutrients, and more than one user.
+        ['foods', 'micros', 'TEXT'],
+        ['diary_entries', 'micros', 'TEXT'],
+        ['users', 'display_name', 'VARCHAR(80)'],
+        ['users', 'is_admin', 'INT NOT NULL DEFAULT 0'],
+        ['users', 'disabled', 'INT NOT NULL DEFAULT 0'],
+        ['users', 'must_change_pw', 'INT NOT NULL DEFAULT 0'],
+        ['users', 'last_seen_at', 'INT'],
+        ['users', 'session_epoch', 'INT NOT NULL DEFAULT 0'],
     ];
 }
 
@@ -482,6 +504,12 @@ function migrate_data(PDO $pdo, int $from): void {
                 $pdo->exec('INSERT INTO med_doses (user_id, item_id, date, slot, taken_at) SELECT user_id, item_id, date, 0, taken_at FROM health_doses');
             } catch (PDOException $e) { /* no old doses table on a fresh install */ }
         }
+    }
+    if ($from < 4) {
+        // Before version 4 there was one user. They become the first admin.
+        $first = $pdo->query('SELECT MIN(id) FROM users')->fetchColumn();
+        $admins = (int) $pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn();
+        if ($first && !$admins) $pdo->prepare('UPDATE users SET is_admin = 1 WHERE id = ?')->execute([(int) $first]);
     }
 }
 

@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 @chmod($configPath, 0600);
             }
             // db() / config() helpers read config.php, which now exists.
-            $st = $pdo->prepare('INSERT INTO users (username, password_hash, settings, created_at) VALUES (?, ?, ?, ?)');
+            $st = $pdo->prepare('INSERT INTO users (username, password_hash, settings, created_at, is_admin) VALUES (?, ?, ?, ?, 1)');
             $st->execute([$username, password_hash($password, PASSWORD_DEFAULT), json_encode(['units' => $in('units', 'imperial') === 'metric' ? 'metric' : 'imperial']), time()]);
             $uid = (int) $pdo->lastInsertId();
             seed_exercises($uid);

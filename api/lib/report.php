@@ -94,6 +94,7 @@ function route_insights_data(int $uid, string $m) {
         $days[$j['date']]['journal'] = ['mood' => $j['mood'] === null ? null : (int) $j['mood'], 'energy' => $j['energy'] === null ? null : (int) $j['energy'],
             'stress' => $j['stress'] === null ? null : (int) $j['stress'], 'tags' => json_decode($j['tags'] ?? '[]', true) ?: []];
     }
+    foreach (drinks_by_day($uid, $from, $to, get_settings($uid)['drinks']['caffeine_cutoff']) as $d => $v) $days[$d]['drinks'] = $v;
     ksort($days);
     return ['from' => $from, 'to' => $to, 'days' => $days];
 }

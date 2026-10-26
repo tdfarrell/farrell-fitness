@@ -28,6 +28,20 @@ function default_settings(): array {
         'lift_days_goal' => 4,           // lifting sessions per week, for the Train overview
         'body_fat_source' => 'auto',     // auto | tape | scale | manual
         'reminders' => [],               // filled in from default_reminders()
+        'nutrient_targets' => [],        // your own daily targets or limits, by nutrient key; blank uses the defaults
+        'drinks' => [
+            'water_goal_ml' => 2957,     // 100 oz
+            'glass_ml' => 237,           // 8 oz
+            'bottle_ml' => 710,          // 24 oz
+            'caffeine_limit' => 400,     // mg a day
+            'caffeine_cutoff' => '14:00',
+            'show' => ['water', 'caffeine', 'alcohol'],
+            'alcohol_to_log' => true,    // add drink calories to the food log
+        ],
+        'phases' => [
+            'start' => null,             // date the first phase begins
+            'items' => [],               // [{id, type, rate_pct, weeks, until_kg, step_kcal}]
+        ],
     ];
 }
 
@@ -71,8 +85,44 @@ function save_settings(int $uid, array $patch): array {
     $s['lift_days_goal'] = max(0, min(14, (int) $s['lift_days_goal']));
     $s['body_fat_source'] = in_array($s['body_fat_source'], ['auto', 'tape', 'scale', 'manual'], true) ? $s['body_fat_source'] : 'auto';
     $s['reminders'] = clean_reminders($s['reminders']);
+    $nt = [];
+    foreach ((array) $s['nutrient_targets'] as $k => $v) {
+        if (preg_match('/^[a-z0-9_]{2,16}$/', (string) $k) && is_numeric($v) && $v > 0 && $v < 100000) $nt[$k] = round((float) $v, 2);
+    }
+    $s['nutrient_targets'] = $nt;
+    $dr = &$s['drinks'];
+    $dr['water_goal_ml'] = max(250, min(8000, (float) $dr['water_goal_ml']));
+    $dr['glass_ml'] = max(30, min(2000, (float) $dr['glass_ml']));
+    $dr['bottle_ml'] = max(100, min(3000, (float) $dr['bottle_ml']));
+    $dr['caffeine_limit'] = max(0, min(2000, (int) $dr['caffeine_limit']));
+    $dr['caffeine_cutoff'] = preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', (string) $dr['caffeine_cutoff']) ? $dr['caffeine_cutoff'] : '14:00';
+    $dr['show'] = array_values(array_intersect(['water', 'caffeine', 'alcohol'], (array) $dr['show']));
+    $dr['alcohol_to_log'] = (bool) $dr['alcohol_to_log'];
+    unset($dr);
+    $s['phases'] = clean_phases($s['phases']);
     if (isset($s['goal']['target_kg']) && $s['goal']['target_kg'] !== null) $s['goal']['target_kg'] = max(30, min(300, (float) $s['goal']['target_kg']));
 
     db_update('users', ['settings' => json_encode($s)], ['id' => $uid]);
     return $s;
+}
+
+/** Diet phases run one after another from `start`. A phase ends after `weeks`, or when trend weight reaches `until_kg`, or never (the last one). */
+function clean_phases($p): array {
+    $p = is_array($p) ? $p : [];
+    $start = isset($p['start']) && is_string($p['start']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $p['start']) ? $p['start'] : null;
+    $items = [];
+    foreach (array_slice((array) ($p['items'] ?? []), 0, 24) as $it) {
+        if (!is_array($it)) continue;
+        $type = in_array($it['type'] ?? '', ['lose', 'maintain', 'gain', 'break', 'reverse'], true) ? $it['type'] : 'maintain';
+        $num = fn($k, $lo, $hi) => isset($it[$k]) && is_numeric($it[$k]) ? max($lo, min($hi, (float) $it[$k])) : null;
+        $items[] = [
+            'id' => preg_match('/^[a-z0-9]{1,16}$/', (string) ($it['id'] ?? '')) ? $it['id'] : bin2hex(random_bytes(4)),
+            'type' => $type,
+            'rate_pct' => in_array($type, ['lose', 'gain'], true) ? ($num('rate_pct', 0.05, 1.5) ?? 0.5) : 0,
+            'weeks' => ($w = $num('weeks', 1, 104)) === null ? null : (int) round($w),
+            'until_kg' => in_array($type, ['lose', 'gain'], true) ? $num('until_kg', 30, 300) : null,
+            'step_kcal' => $type === 'reverse' ? (int) ($num('step_kcal', 25, 250) ?? 75) : null,
+        ];
+    }
+    return ['start' => $items ? ($start ?? date('Y-m-d')) : null, 'items' => $items];
 }

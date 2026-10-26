@@ -20,11 +20,13 @@ import * as body from './views/body.js';
 import * as insights from './views/insights.js';
 import * as report from './views/report.js';
 import * as projection from './views/projection.js';
+import * as phases from './views/phases.js';
+import * as users from './views/users.js';
 import { openQuickAddMenu } from './quickadd.js';
 
-const VIEWS = { today, food, plans, weight, train, progress, whoop, settings, health, habits, journal, more, body, insights, report, projection };
+const VIEWS = { today, food, plans, weight, train, progress, whoop, settings, health, habits, journal, more, body, insights, report, projection, phases, users };
 const TITLES = { today: 'Today', food: 'Food', plans: 'Meal plans', weight: 'Weight', train: 'Training', progress: 'Progress', whoop: 'WHOOP',
-  settings: 'Settings', health: 'Health', habits: 'Habits', journal: 'Journal', more: 'More', body: 'Body', insights: 'Insights', report: 'Weekly report', projection: 'Goal projection' };
+  settings: 'Settings', health: 'Health', habits: 'Habits', journal: 'Journal', more: 'More', body: 'Body', insights: 'Insights', report: 'Weekly report', projection: 'Goal projection', phases: 'Diet phases', users: 'Users' };
 // Which bottom tab lights up for each screen.
 const TAB = { today: 'today', food: 'food', plans: 'food', train: 'train' };
 const root = document.getElementById('view');
@@ -58,6 +60,8 @@ async function route() {
     if (!state.user) { renderLogin(); return; }
     if (name === 'login') { location.hash = '#/today'; return; }
   }
+  // Signed in with a temporary password from an admin: choose your own before anything else.
+  if (state.user.must_change_pw) { document.body.classList.add('logged-out'); renderSetPassword(); return; }
   document.body.classList.remove('logged-out');
 
   const view = VIEWS[name] || today;
@@ -120,6 +124,40 @@ function renderLogin() {
   root.replaceChildren(h('div', { class: 'login' }, form));
   document.title = 'Sign in | Farrell Fitness';
   setTimeout(() => form.querySelector('#lg-u').focus(), 30);
+}
+
+function renderSetPassword() {
+  const err = h('p', { class: 'banner', hidden: true, role: 'alert' });
+  const form = h('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const a = form.querySelector('#sp-a').value, b = form.querySelector('#sp-b').value;
+    if (a.length < 10) { err.textContent = 'Use at least 10 characters.'; err.hidden = false; return; }
+    if (a !== b) { err.textContent = "The two passwords don't match."; err.hidden = false; return; }
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await post('auth/set_password', { new: a });
+      state.user = r.user; markStale();
+      toast('Password saved');
+      location.hash = '#/today'; route();
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+  } },
+    h('img', { class: 'logo', src: 'icons/logo-mark.svg', alt: '', width: 92, height: 75 }),
+    h('h1', null, `Welcome, ${state.user.name}`),
+    h('p', { class: 'note' }, 'You signed in with a temporary password. Choose your own to continue. It needs at least 10 characters.'),
+    err,
+    h('input', { type: 'text', autocomplete: 'username', value: state.user.username, hidden: true, readonly: true }),
+    h('label', { class: 'field', for: 'sp-a' }, 'New password', h('input', { id: 'sp-a', type: 'password', autocomplete: 'new-password', required: true, minlength: 10 })),
+    h('label', { class: 'field', for: 'sp-b' }, 'Type it again', h('input', { id: 'sp-b', type: 'password', autocomplete: 'new-password', required: true })),
+    h('button', { class: 'btn primary block', type: 'submit' }, 'Save and continue'),
+    h('button', { class: 'btn sm ghost', type: 'button', style: { alignSelf: 'center' }, onclick: async () => {
+      try { await post('auth/logout', {}); } catch {}
+      state.user = null; location.hash = '#/login'; location.reload();
+    } }, 'Sign out'));
+  root.replaceChildren(h('div', { class: 'login' }, form));
+  document.title = 'Choose a password | Farrell Fitness';
+  setTimeout(() => form.querySelector('#sp-a').focus(), 30);
 }
 
 /* ---------- offline ---------- */

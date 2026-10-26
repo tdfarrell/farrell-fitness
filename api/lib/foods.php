@@ -15,6 +15,39 @@ const N_FIBER = [1079, '291'];
 const N_SUGAR = [2000, 1063, '269'];
 const N_SODIUM = [1093, '307'];
 
+// Micronutrients kept per 100 g in foods.micros (JSON). Units: g for the fats and sugar, mg or mcg as named.
+// [USDA ids/numbers, Open Food Facts key, multiplier from OFF's grams to our unit]
+const MICROS = [
+    'sat_fat' => [[1258, '606'], 'saturated-fat', 1],
+    'trans_fat' => [[1257, '605'], 'trans-fat', 1],
+    'added_sugar' => [[1235, '539'], 'added-sugars', 1],
+    'cholesterol' => [[1253, '601'], 'cholesterol', 1000],
+    'potassium' => [[1092, '306'], 'potassium', 1000],
+    'calcium' => [[1087, '301'], 'calcium', 1000],
+    'iron' => [[1089, '303'], 'iron', 1000],
+    'magnesium' => [[1090, '304'], 'magnesium', 1000],
+    'zinc' => [[1095, '309'], 'zinc', 1000],
+    'vit_a' => [[1106, '320'], 'vitamin-a', 1e6],
+    'vit_c' => [[1162, '401'], 'vitamin-c', 1000],
+    'vit_d' => [[1114, '328'], 'vitamin-d', 1e6],
+    'vit_e' => [[1109, '323'], 'vitamin-e', 1000],
+    'vit_k' => [[1185, '430'], 'vitamin-k', 1e6],
+    'b6' => [[1175, '415'], 'vitamin-b6', 1000],
+    'b12' => [[1178, '418'], 'vitamin-b12', 1e6],
+    'folate' => [[1190, 1177, '435', '417'], 'folates', 1e6],
+];
+/** Every nutrient a diary entry can carry in its micros, including the two that also have their own columns on foods. */
+const ENTRY_MICROS = ['sugar', 'sodium', 'sat_fat', 'trans_fat', 'added_sugar', 'cholesterol', 'potassium', 'calcium', 'iron', 'magnesium', 'zinc', 'vit_a', 'vit_c', 'vit_d', 'vit_e', 'vit_k', 'b6', 'b12', 'folate'];
+
+function clean_micros($m): ?array {
+    if (!is_array($m)) return null;
+    $out = [];
+    foreach (MICROS as $k => $_) {
+        if (isset($m[$k]) && is_numeric($m[$k]) && $m[$k] >= 0 && $m[$k] < 1e6) $out[$k] = round((float) $m[$k], 3);
+    }
+    return $out ?: null;
+}
+
 function usda_key(): string { return config()['usda_api_key'] ?: 'DEMO_KEY'; }
 
 /** Pull a nutrient value out of USDA's two different nutrient list shapes. */
@@ -83,7 +116,17 @@ function normalize_usda(array $f): array {
         'sugar' => round1(usda_nutrient($list, N_SUGAR)),
         'sodium' => round1(usda_nutrient($list, N_SODIUM)),
         'portions' => array_slice($portions, 0, 8),
+        'micros' => usda_micros($list),
     ];
+}
+
+function usda_micros(array $list): ?array {
+    $m = [];
+    foreach (MICROS as $k => [$ids]) {
+        $v = usda_nutrient($list, $ids);
+        if ($v !== null) $m[$k] = round($v, 3);
+    }
+    return $m ?: null;
 }
 
 function usda_search(string $query, array $types, int $size): array {
@@ -110,6 +153,10 @@ function off_lookup(string $code): ?array {
     $n = $p['nutriments'] ?? [];
     $kcal = $n['energy-kcal_100g'] ?? (isset($n['energy_100g']) ? $n['energy_100g'] / 4.184 : null);
     if ($kcal === null || empty($p['product_name'])) return null;
+    $micros = [];
+    foreach (MICROS as $k => [, $offKey, $mult]) {
+        if (isset($n[$offKey . '_100g']) && is_numeric($n[$offKey . '_100g'])) $micros[$k] = round($n[$offKey . '_100g'] * $mult, 3);
+    }
     $portions = [];
     if (!empty($p['serving_quantity'])) {
         $portions[] = ['label' => ($p['serving_size'] ?? 'serving'), 'grams' => (float) $p['serving_quantity']];
@@ -124,6 +171,7 @@ function off_lookup(string $code): ?array {
         'fiber' => round1($n['fiber_100g'] ?? null), 'sugar' => round1($n['sugars_100g'] ?? null),
         'sodium' => isset($n['sodium_100g']) ? round1($n['sodium_100g'] * 1000) : null,
         'portions' => $portions,
+        'micros' => $micros ?: null,
     ];
 }
 
@@ -158,6 +206,7 @@ function food_row_out(array $r): array {
         'sodium' => $r['sodium'] === null ? null : (float) $r['sodium'],
         'portions' => json_decode($r['portions'] ?? '[]', true) ?: [],
         'recipe' => $r['recipe'] ? json_decode($r['recipe'], true) : null,
+        'micros' => !empty($r['micros']) ? json_decode($r['micros'], true) : null,
         'use_count' => (int) $r['use_count'],
     ];
 }
@@ -186,6 +235,9 @@ function save_food(int $uid, array $f): int {
         'recipe' => isset($f['recipe']) ? json_encode($f['recipe']) : null,
         'archived' => 0,
     ];
+    // Keep nutrients we already have if this copy doesn't carry any (a search hit saved without details).
+    $micros = clean_micros($f['micros'] ?? null);
+    if ($micros !== null || in_array($source, ['custom', 'recipe'], true)) $data['micros'] = $micros === null ? null : json_encode($micros);
     if (!empty($f['id']) && in_array($source, ['custom', 'recipe'], true)) {
         db_update('foods', $data, ['id' => (int) $f['id'], 'user_id' => $uid]);
         return (int) $f['id'];
@@ -214,4 +266,14 @@ function search_foods(int $uid, string $query): array {
     foreach ($mine as $m) if ($m['source'] === 'usda') $have[$m['source_id']] = true;
     $usda = array_values(array_filter(array_merge($generic, $branded), fn($f) => !isset($have[$f['source_id']])));
     return ['mine' => $mine, 'results' => $usda, 'error' => $error];
+}
+
+/** Nutrients for a diary entry: the food's per-100 g values scaled to the amount eaten. */
+function entry_micros(array $food, float $grams): ?string {
+    $k = $grams / 100;
+    $m = [];
+    foreach (['sugar', 'sodium'] as $c) if (isset($food[$c]) && $food[$c] !== null) $m[$c] = round((float) $food[$c] * $k, 3);
+    $fm = is_array($food['micros'] ?? null) ? $food['micros'] : (!empty($food['micros']) ? json_decode($food['micros'], true) : null);
+    foreach ((array) $fm as $key => $v) if (isset(MICROS[$key]) && is_numeric($v)) $m[$key] = round((float) $v * $k, 3);
+    return $m ? json_encode($m) : null;
 }

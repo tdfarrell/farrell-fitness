@@ -3,7 +3,8 @@ import { post } from '../api.js';
 import { state, loadSummary, markStale, fmtW, wUnit, toDisplayW } from '../store.js';
 import { pageHead } from '../components.js';
 import { chart } from '../charts.js';
-import { targetsFor, weekReview } from '../tdee.js';
+import { weekReview } from '../tdee.js';
+import { proposeTargets, PHASE_TYPES } from '../phases.js';
 
 let forceCheckin = false;
 
@@ -14,7 +15,8 @@ export async function render(root) {
   const review = weekReview(model, today);
   const coached = settings.program !== 'manual';
   const showCheckin = coached && (checkin.due || forceCheckin);
-  const proposed = targetsFor(model.expenditure, model.trendKg || 80, settings);
+  const proposed = proposeTargets(model, settings, summary.checkins, today, state.phases);
+  const phase = proposed.phase;
   const prev = summary.checkins[0];
 
   // 12 weekly buckets ending yesterday.
@@ -30,8 +32,10 @@ export async function render(root) {
       exp: slice[slice.length - 1].expenditure,
     });
   }
-  const goal = settings.goal || {};
-  const goalText = goal.type === 'maintain' ? 'Maintain weight'
+  const goal = phase ? { type: phase.type === 'lose' || phase.type === 'gain' ? phase.type : 'maintain' } : (settings.goal || {});
+  const goalText = phase && phase.type === 'reverse' ? `Reverse diet, +${phase.step_kcal || 75} kcal a week`
+    : phase && phase.type === 'break' ? 'Diet break at maintenance'
+    : goal.type === 'maintain' ? 'Maintain weight'
     : `${goal.type === 'lose' ? 'Lose' : 'Gain'} ${fmt1(Math.abs(toDisplayW(proposed.rateKgWeek)))} ${wUnit()}/wk`;
 
   const weekCard = h('section', { class: 'card', 'aria-label': 'This week', style: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px' } },
@@ -60,7 +64,11 @@ export async function render(root) {
   let targetCard;
   if (showCheckin) {
     const diff = prev ? proposed.kcal - prev.kcal : null;
-    const why = !model.hasData
+    const why = checkin.phaseStarted
+      ? `Your ${PHASE_TYPES[checkin.phaseStarted.type].name.toLowerCase()} phase has started, so targets follow it from today.`
+      : phase?.type === 'reverse'
+      ? `Reverse diet: calories go up ${phase.step_kcal || 75} a week until they reach your expenditure of ${fmt0(model.expenditure)}.`
+      : !model.hasData
       ? 'Not enough logged days yet, so this uses your starting estimate. It gets sharper every week you log.'
       : prev
         ? `Your expenditure ${review.expenditureChange > 5 ? 'rose' : review.expenditureChange < -5 ? 'fell' : 'held steady'}, so calories ${diff > 0 ? `go up ${fmt0(diff)}` : diff < 0 ? `go down ${fmt0(-diff)}` : 'stay the same'} to keep you on pace for your goal.`
@@ -70,7 +78,7 @@ export async function render(root) {
       await post('checkins/save', {
         date: today, expenditure: Math.round(model.expenditure), trend_kg: model.trendKg,
         kcal: t.kcal, protein: t.protein, carbs: t.carbs, fat: t.fat,
-        detail: { kept: !!kept, review, goal: settings.goal, proposed },
+        detail: { kept: !!kept, review, goal: phase ? { type: goal.type, rate_pct: phase.rate_pct } : settings.goal, proposed: { ...proposed, phase: undefined }, phase_id: phase?.id || null, phase_type: phase?.type || null },
       });
       markStale(); forceCheckin = false;
       toast(kept ? 'Kept your current targets' : 'New targets applied');

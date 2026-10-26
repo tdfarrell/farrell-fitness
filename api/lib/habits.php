@@ -4,7 +4,7 @@
 // weigh-in from the weight log, meds from the Health checklist, journal from today's entry.
 
 const HABIT_SLOTS = ['morning', 'day', 'evening'];
-const HABIT_KINDS = ['check', 'minutes', 'count', 'steps', 'sleep', 'weigh_in', 'meds', 'log_food', 'journal'];
+const HABIT_KINDS = ['check', 'minutes', 'count', 'steps', 'sleep', 'weigh_in', 'meds', 'log_food', 'journal', 'water'];
 
 function default_habits(): array {
     return [
@@ -47,6 +47,11 @@ function habit_status(int $uid, array $habits, string $from, string $to): array 
     $food = array_flip(array_column(q_all('SELECT DISTINCT date FROM diary_entries WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]), 'date'));
     $journal = array_flip(array_column(q_all('SELECT date FROM journal WHERE user_id = ? AND date BETWEEN ? AND ?', [$uid, $from, $to]), 'date'));
     $meds = array_filter($habits, fn($h) => $h['kind'] === 'meds') ? med_progress($uid, $from, $to) : [];
+    $water = [];
+    if (array_filter($habits, fn($h) => $h['kind'] === 'water')) {
+        foreach (q_all("SELECT date, SUM(amount) ml FROM drinks WHERE user_id = ? AND kind = 'water' AND date BETWEEN ? AND ? GROUP BY date", [$uid, $from, $to]) as $r) $water[$r['date']] = (float) $r['ml'];
+        $waterGoal = (float) get_settings($uid)['drinks']['water_goal_ml'];
+    }
 
     $out = [];
     // Step by calendar day from noon, so clock changes can't skip or repeat a date.
@@ -68,6 +73,10 @@ function habit_status(int $uid, array $habits, string $from, string $to): array 
                 case 'weigh_in': $auto = isset($weighed[$d]); $source = 'weight'; break;
                 case 'log_food': $auto = isset($food[$d]); $source = 'food'; break;
                 case 'journal': $auto = isset($journal[$d]); $source = 'journal'; break;
+                case 'water':
+                    // Done when the day's water reaches the goal in Drinks settings.
+                    $value = round($water[$d] ?? 0); $auto = $value >= $waterGoal; $source = 'water';
+                    break;
                 case 'meds':
                     // Done when every scheduled dose due that day is taken. Days with nothing due count as done.
                     if (($meds[$d]['items'] ?? 0) > 0) { $value = $meds[$d]['taken']; $due = $meds[$d]['due']; $auto = $meds[$d]['taken'] >= $meds[$d]['due']; $source = 'meds'; }
