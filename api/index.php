@@ -16,6 +16,7 @@ require __DIR__ . '/lib/photos.php';
 require __DIR__ . '/lib/backup.php';
 require __DIR__ . '/lib/push.php';
 require __DIR__ . '/lib/reminders.php';
+require __DIR__ . '/lib/rest.php';
 require __DIR__ . '/lib/sync.php';
 require __DIR__ . '/lib/report.php';
 require __DIR__ . '/lib/nutrition.php';

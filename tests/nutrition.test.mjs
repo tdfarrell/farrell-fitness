@@ -107,8 +107,8 @@ t('no plan means your usual goal', () => {
 /* ---------- nutrient targets ---------- */
 t('nutrient targets depend on sex and age, and your own override them', () => {
   const now = new Date().getFullYear();
-  assert.equal(defaultTarget('fiber', { sex: 'male', birth_year: now - 40 }), 38);
-  assert.equal(defaultTarget('fiber', { sex: 'female', birth_year: now - 60 }), 21);
+  assert.equal(defaultTarget('fiber', { sex: 'male', birth_year: now - 40 }, 2150), 30);
+  assert.equal(defaultTarget('fiber', { sex: 'female', birth_year: now - 60 }), 28);
   assert.equal(defaultTarget('iron', { sex: 'female', birth_year: now - 30 }), 18);
   assert.equal(defaultTarget('sat_fat', {}, 2700), 30);
   assert.equal(defaultTarget('sugar', {}), null);

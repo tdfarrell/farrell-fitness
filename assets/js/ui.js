@@ -38,6 +38,13 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   left: '<path d="M15 6l-6 6 6 6"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  up: '<path d="M6 15l6-6 6 6"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
+  sound: '<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>',
+  muted: '<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M17 9l5 6M22 9l-5 6"/>',
+  play: '<path d="M7 5l12 7-12 7z" fill="currentColor"/>',
+  sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
   right: '<path d="M9 6l6 6-6 6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
   barcode: '<path d="M4 7V5h3M17 5h3v2M20 17v2h-3M7 19H4v-2M8 9v6M11 9v6M14 9v6M17 9v6"/>',
@@ -88,7 +95,7 @@ export function icon(name, size) {
   s.setAttribute('viewBox', '0 0 24 24');
   s.setAttribute('fill', 'none');
   s.setAttribute('stroke', 'currentColor');
-  s.setAttribute('stroke-width', name === 'check' ? '3' : '2');
+  s.setAttribute('stroke-width', name === 'check' ? '3' : name === 'back' ? '2.4' : '2');
   s.setAttribute('stroke-linecap', 'round');
   s.setAttribute('stroke-linejoin', 'round');
   s.setAttribute('aria-hidden', 'true');

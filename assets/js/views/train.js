@@ -1,10 +1,11 @@
 import { h, icon, fmt0, fmt1, todayISO, relDay, shortDate, openSheet, toast, confirmSheet, debounce } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary, wUnit, liftDisplay, fromDisplayW, toDisplayW } from '../store.js';
-import { pageHead, loading } from '../components.js';
+import { pageHead, loading, foldCard } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
 import { trainSwitch, renderCardio, renderCardioForm, renderProgress } from './cardio.js';
 import { gripHandle, makeSortable } from '../sortable.js';
+import { ring, unlockAudio, scheduleRestPush, cancelRestPush } from '../restalarm.js';
 
 const ACTIVE_KEY = 'ff_active_workout_v1';
 const histCache = new Map();
@@ -53,7 +54,7 @@ async function renderList(root) {
   wk.whoop.forEach(x => { if (x.strength) strainByDate[x.date] = x.strain; });
 
   root.replaceChildren(
-    pageHead('Training', 'Train', [h('a', { class: 'btn sm primary', href: '#/train/new' }, 'Empty workout')]),
+    pageHead('Training', 'Strength', [h('a', { class: 'btn sm primary', href: '#/train/new' }, 'Empty workout')]),
     h('div', { class: 'stack' },
       trainSwitch('strength'),
       active ? h('a', { class: 'linkcard', href: '#/train/active' },
@@ -69,16 +70,15 @@ async function renderList(root) {
             h('button', { class: 'btn sm ghost', 'aria-label': `Edit ${r.name}`, onclick: () => editRoutine(r, exs, () => renderList(root)) }, 'Edit'),
             h('a', { class: 'btn sm', href: `#/train/new?routine=${r.id}` }, 'Start'))))
             : h('p', { class: 'note' }, 'Save the exercises you repeat as a routine to start them in one tap.')),
-        h('section', { class: 'card grow-3', 'aria-label': 'History' },
-          h('h2', null, 'Last 90 days'),
+        h('div', { class: 'grow-3 stack' }, foldCard({ key: 'strength-history', title: 'Last 90 days', label: 'History', summary: `${items.length} session${items.length === 1 ? '' : 's'}` },
           items.length ? h('div', { class: 'list' }, items.map(it =>
             h('a', { class: 'list-row', href: `#/train/${it.w.id}`, style: { textDecoration: 'none', color: 'inherit' } },
               h('div', { class: 'main' }, h('span', { class: 'title' }, it.w.name),
                 h('span', { class: 'small muted' }, `${relDay(it.w.date)}${it.w.duration_min ? `, ${it.w.duration_min} min` : ''}, ${it.w.set_count} sets, ${fmt0(toDisplayW(it.w.volume_kg))} ${wUnit()} volume`)),
               strainByDate[it.date] != null ? h('span', { class: 'small muted' }, `Strain ${fmt1(strainByDate[it.date])}`) : null)))
-            : h('p', { class: 'note' }, 'No lifting sessions yet. Start a routine or an empty workout.'))),
-      h('section', { class: 'card', 'aria-label': 'Exercises' },
-        h('div', { class: 'card-head' }, h('h2', null, 'Exercises'), h('button', { class: 'btn sm ghost', onclick: () => editExercise(null, () => { exercisesCache = null; renderList(root); }) }, 'New exercise')),
+            : h('p', { class: 'note' }, 'No lifting sessions yet. Start a routine or an empty workout.')))),
+      foldCard({ key: 'strength-exercises', title: 'Exercises', summary: String(exs.length), open: false,
+        action: h('button', { class: 'btn sm ghost', onclick: () => editExercise(null, () => { exercisesCache = null; renderList(root); }) }, 'New exercise') },
         h('div', { class: 'pills' }, exs.map(e => h('a', { class: 'pill', href: `#/train/exercise/${e.id}`, style: { display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' } }, e.name))))));
 }
 
@@ -192,6 +192,9 @@ async function startWorkout(root, routineId) {
 
 let restTimer = null;
 let restEnds = 0;
+let restOver = false;     // the orange "Rest over" bar is showing
+let restPushOff = false;  // the locked-phone push was cancelled because the app is on screen
+let reschedule = null;
 
 function renderActive(root) {
   const w = readActive();
@@ -207,24 +210,74 @@ function renderActive(root) {
   } }, h('h1', null, w.name));
 
   const restBox = h('div', { class: 'rest', hidden: true, role: 'timer', 'aria-live': 'off' });
+  // The next set to do, for the "Rest over" bar and the locked-phone notification.
+  const nextUp = () => {
+    for (const ex of w.exercises) {
+      let n = 0;
+      for (const s of ex.sets) {
+        if (!s.warmup) n++;
+        if (s.done) continue;
+        const wt = s.weight || s._phW, reps = s.reps || s._phR;
+        return `${ex.name} ${s.warmup ? 'warm-up' : `set ${n}`}${wt ? `, ${wt}${reps ? ` × ${reps}` : ''}` : reps ? `, ${reps} reps` : ''}`;
+      }
+    }
+    return null;
+  };
+  const fmtLeft = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  const pushRest = () => {
+    clearTimeout(reschedule);
+    restPushOff = false;
+    const secs = (restEnds - Date.now()) / 1000;
+    if (secs < 3) { cancelRestPush(); return; }
+    const nx = nextUp();
+    reschedule = setTimeout(() => scheduleRestPush(secs - 0.4, { title: 'Rest over', body: `${nx ? `${nx}. ` : ''}Tap to go back to ${w.name}.` }), 400);
+  };
+  const muteBtn = () => h('button', { class: 'icon-btn rest-mute', 'aria-label': w.rest_muted ? 'Sound off for this workout' : 'Sound on', 'aria-pressed': String(!w.rest_muted),
+    onclick: () => { w.rest_muted = !w.rest_muted; save(); drawRest(); } }, icon(w.rest_muted ? 'muted' : 'sound', 20));
   const drawRest = () => {
+    if (restOver) {
+      const nx = nextUp();
+      restBox.hidden = false; restBox.classList.add('over'); restBox.setAttribute('role', 'alert');
+      restBox.replaceChildren(
+        icon('bell', 26),
+        h('span', { class: 'rest-text' }, h('span', { class: 'rest-title' }, 'Rest over'), nx ? h('span', { class: 'small' }, `Next: ${nx}`) : null),
+        h('button', { class: 'btn sm outline-light', onclick: () => { restOver = false; unlockAudio(); restEnds = Date.now() + 30000; startTicking(); pushRest(); } }, '+30 s'),
+        h('button', { class: 'btn sm light', onclick: () => { restOver = false; drawRest(); } }, 'OK'));
+      return;
+    }
+    restBox.classList.remove('over'); restBox.setAttribute('role', 'timer');
     const left = Math.round((restEnds - Date.now()) / 1000);
     if (left <= 0) {
       restBox.hidden = true; clearInterval(restTimer); restTimer = null;
-      if (restEnds) { navigator.vibrate?.([200, 100, 200]); restEnds = 0; }
+      if (restEnds) {
+        const late = Date.now() - restEnds;
+        restEnds = 0; restOver = true;
+        // Only ring if we're on time: coming back to the app long after, the push already did it.
+        if (late < 4000) ring(w.rest_muted);
+        drawRest();
+      }
       return;
     }
+    // On screen near the end: the tone will play here, so the push isn't needed.
+    if (left <= 2 && !restPushOff && document.visibilityState === 'visible') { restPushOff = true; cancelRestPush(); }
     restBox.hidden = false;
     restBox.replaceChildren(
       h('span', { style: { display: 'flex', flexDirection: 'column' } }, h('span', { class: 'small', style: { color: 'var(--on-deep-muted)' } }, 'Rest'),
-        h('span', { class: 'num', style: { fontSize: '30px' } }, `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`)),
-      h('div', { style: { display: 'flex', gap: '8px' } },
-        h('button', { class: 'btn sm', onclick: () => { restEnds -= 15000; drawRest(); } }, '-15 s'),
-        h('button', { class: 'btn sm', onclick: () => { restEnds += 15000; drawRest(); } }, '+15 s'),
-        h('button', { class: 'btn sm light', onclick: () => { restEnds = Date.now(); drawRest(); } }, 'Skip')));
+        h('span', { class: 'num', style: { fontSize: '30px' } }, fmtLeft(left))),
+      h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+        muteBtn(),
+        h('button', { class: 'btn sm', onclick: () => { restEnds -= 15000; drawRest(); if (restEnds > Date.now()) pushRest(); } }, '-15 s'),
+        h('button', { class: 'btn sm', onclick: () => { restEnds += 15000; drawRest(); pushRest(); } }, '+15 s'),
+        h('button', { class: 'btn sm light', onclick: () => { restEnds = 0; restOver = false; clearTimeout(reschedule); cancelRestPush(); drawRest(); } }, 'Skip')));
   };
-  const startRest = () => { restEnds = Date.now() + restSecs * 1000; clearInterval(restTimer); restTimer = setInterval(drawRest, 1000); drawRest(); };
-  if (restEnds > Date.now()) { clearInterval(restTimer); restTimer = setInterval(drawRest, 1000); drawRest(); }
+  const startTicking = () => { clearInterval(restTimer); restTimer = setInterval(drawRest, 1000); drawRest(); };
+  const startRest = () => { unlockAudio(); restOver = false; restEnds = Date.now() + restSecs * 1000; startTicking(); pushRest(); };
+  const stopRest = () => { if (restEnds) { clearTimeout(reschedule); cancelRestPush(); } restEnds = 0; restOver = false; clearInterval(restTimer); restTimer = null; };
+  if (restEnds > Date.now() || restOver) startTicking();
+  else if (restEnds) { restEnds = 0; } // ended while you were on another screen
+  // Back from another app or the lock screen: catch up at once instead of on the next tick.
+  const onVisible = () => { if (document.visibilityState === 'visible' && (restEnds || restOver)) drawRest(); };
+  document.addEventListener('visibilitychange', onVisible);
 
   const cards = h('div', { class: 'stack' });
   const drawCards = () => cards.replaceChildren(...w.exercises.map((ex, xi) => exerciseCard(ex, xi)));
@@ -325,7 +378,7 @@ function renderActive(root) {
     }
     try {
       const r = await post('workouts/save', { id: w.id, date: w.date, name: w.name, notes: w.notes || null, duration_min: w.duration_min || minutes(), sets });
-      writeActive(null); histCache.clear(); restEnds = 0;
+      writeActive(null); histCache.clear(); stopRest();
       toast(r.queued ? 'Workout saved offline. It will sync when you reconnect.' : 'Workout saved');
       location.hash = r.queued ? '#/train' : `#/train/${r.workout.id}`;
     } catch (e) { toast(e.message, 'error'); }
@@ -336,7 +389,7 @@ function renderActive(root) {
     h('header', { class: 'page-head' },
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, elapsed, nameBtn),
       h('div', { class: 'actions' },
-        h('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmSheet('Discard workout?', 'Everything logged in this session will be lost.', 'Discard')) { writeActive(null); location.hash = '#/train'; } } }, 'Discard'),
+        h('button', { class: 'btn sm ghost', onclick: async () => { if (await confirmSheet('Discard workout?', 'Everything logged in this session will be lost.', 'Discard')) { stopRest(); writeActive(null); location.hash = '#/train'; } } }, 'Discard'),
         h('button', { class: 'btn sm primary', onclick: finish }, 'Finish'))),
     h('div', { class: 'stack', style: { maxWidth: '760px' } },
       restBox,
@@ -345,7 +398,7 @@ function renderActive(root) {
       h('label', { class: 'field' }, 'Notes', h('textarea', { oninput: (e) => { w.notes = e.target.value; save(); } }, w.notes || ''))));
 
   const tick = setInterval(() => { elapsed.textContent = `In progress, ${minutes()} min`; }, 30000);
-  return () => { clearInterval(tick); clearInterval(restTimer); restTimer = null; };
+  return () => { clearInterval(tick); clearInterval(restTimer); restTimer = null; document.removeEventListener('visibilitychange', onVisible); };
 }
 
 /* ---------- saved workout ---------- */

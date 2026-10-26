@@ -23,6 +23,7 @@ import * as projection from './views/projection.js';
 import * as phases from './views/phases.js';
 import * as users from './views/users.js';
 import { openQuickAddMenu } from './quickadd.js';
+import { recordRoute, initEdgeSwipe } from './nav.js';
 
 const VIEWS = { today, food, plans, weight, train, progress, whoop, settings, health, habits, journal, more, body, insights, report, projection, phases, users };
 const TITLES = { today: 'Today', food: 'Food', plans: 'Meal plans', weight: 'Weight', train: 'Training', progress: 'Progress', whoop: 'WHOOP',
@@ -66,6 +67,7 @@ async function route() {
 
   const view = VIEWS[name] || today;
   const current = VIEWS[name] ? name : 'today';
+  recordRoute(current, VIEWS[name] ? params : [], VIEWS[name] ? (location.hash || '#/today') : '#/today');
   // The content area is the scroller now, so a new screen starts at the top. Re-renders of the
   // same screen (after a quick add, a sync) keep their place.
   const screen = location.hash.split('?')[0];
@@ -197,5 +199,6 @@ document.addEventListener('visibilitychange', () => {
 });
 
 applyTheme();
+initEdgeSwipe(document);
 updateOnline();
 route();

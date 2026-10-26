@@ -19,7 +19,7 @@
   --sleep-light: #A9BCDB; --sleep-deep: #00275B; --sleep-rem: #E06A1F;
   --danger-bg: #FBE9E8; --danger-ink: #7E1B18;
   --lift: #00275B; --on-lift: #FFFFFF;
-  --water: #1F6FB2; --soft-water: #DCEBF7; --on-soft-water: #154E7E; --phase-reverse: #6F8FBF; --limit-fill: #9DB2CE;
+  --fiber: #8A6436; --water: #1F6FB2; --soft-water: #DCEBF7; --on-soft-water: #154E7E; --phase-reverse: #6F8FBF; --limit-fill: #9DB2CE;
   --warn-bg: #FCEBDD; --warn-ink: #8A3D0B;
   --radius-card: 18px; --radius-ctl: 12px;
   --display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
@@ -37,7 +37,7 @@
     --deep: #0A1A33; --deep-2: #1C3358; --sleep-light: #33507F; --sleep-deep: #8FAAD6; --sleep-rem: #FF914D;
     --danger-bg: #3A1A1A; --danger-ink: #F7B4B1;
     --lift: #8FAAD6; --on-lift: #0F1823;
-    --water: #5BA8E6; --soft-water: #1C3550; --on-soft-water: #BFE0FA; --phase-reverse: #8FAAD6; --limit-fill: #4A5F7C;
+    --fiber: #C49A63; --water: #5BA8E6; --soft-water: #1C3550; --on-soft-water: #BFE0FA; --phase-reverse: #8FAAD6; --limit-fill: #4A5F7C;
     --warn-bg: #3D2717; --warn-ink: #FFC9A3;
     color-scheme: dark;
   }
@@ -51,7 +51,7 @@
   --deep: #0A1A33; --deep-2: #1C3358; --sleep-light: #33507F; --sleep-deep: #8FAAD6; --sleep-rem: #FF914D;
   --danger-bg: #3A1A1A; --danger-ink: #F7B4B1;
   --lift: #8FAAD6; --on-lift: #0F1823;
-  --water: #5BA8E6; --soft-water: #1C3550; --on-soft-water: #BFE0FA; --phase-reverse: #8FAAD6; --limit-fill: #4A5F7C;
+  --fiber: #C49A63; --water: #5BA8E6; --soft-water: #1C3550; --on-soft-water: #BFE0FA; --phase-reverse: #8FAAD6; --limit-fill: #4A5F7C;
   --warn-bg: #3D2717; --warn-ink: #FFC9A3;
   color-scheme: dark;
 }
@@ -124,7 +124,27 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .page-head .eyebrow { font-size: 14px; color: var(--muted); font-weight: 500; }
 .page-head h1 { font: 700 38px/1 var(--display); letter-spacing: -0.01em; }
 .page-head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-head .titles { display: flex; flex-direction: column; gap: 2px; }
 @media (min-width: 1024px) { .page-head h1 { font-size: 44px; } }
+/* Back arrow: every screen below the tab front pages. */
+.back-btn { width: 44px; height: 44px; flex: none; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: var(--primary); margin-left: -6px; }
+@media (hover: hover) { .back-btn:hover { background: var(--surface); } }
+.back-btn svg { width: 24px; height: 24px; }
+.page-head.has-back { padding: 20px 0 12px; align-items: center; gap: 4px 6px; flex-wrap: nowrap; }
+.page-head.has-back .titles { flex: 1; min-width: 0; }
+.page-head.has-back .eyebrow { font-size: 13px; }
+.page-head.has-back h1 { font-size: 34px; overflow-wrap: anywhere; }
+.page-head.date-head .actions { flex-wrap: nowrap; align-items: center; }
+.page-head.date-head .icon-btn.bordered { width: 44px; height: 44px; color: var(--text); }
+.page-head.has-back:not(.date-head) { flex-wrap: wrap; }
+.page-head.has-back:not(.date-head) .titles { flex: 1 1 150px; }
+.page-head.has-back:not(.date-head) .actions { margin-left: auto; }
+@media (min-width: 1024px) {
+  /* The sidebar covers top-level screens on desktop. */
+  .page-head.back-top .back-btn { display: none; }
+  .page-head.back-top { padding: 28px 4px 12px; }
+  .page-head.has-back h1 { font-size: 40px; }
+}
 
 /* ---------- cards & layout ---------- */
 .stack { display: flex; flex-direction: column; gap: 12px; }
@@ -275,9 +295,6 @@ button.list-row:first-child { border-top: 0; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { display: inline-block; }
 
-.date-nav { display: flex; align-items: center; justify-content: space-between; padding: 24px 0 8px; }
-.date-nav .center { display: flex; flex-direction: column; align-items: center; }
-.date-nav h1 { font: 700 30px/1 var(--display); }
 
 .set-grid { display: grid; grid-template-columns: 34px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) 44px; gap: 8px; align-items: center; }
 .set-grid.head { font-size: 12px; color: var(--muted); padding: 4px 0 0; }
@@ -415,7 +432,6 @@ body.logged-out .content { padding-bottom: 0; }
 .linkish { text-decoration: none; color: inherit; }
 .linkish:hover { color: inherit; }
 .linkish svg { color: var(--muted); }
-.back-link { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; text-decoration: none; font-size: 15px; }
 .lab-row { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; border: 0; border-top: 1px solid var(--rule); background: none; text-align: left; width: 100%; cursor: pointer; color: inherit; font: inherit; }
 .lab-row:first-child { border-top: 0; }
 .lab-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -782,3 +798,71 @@ button.nut-row:hover .title { color: var(--primary); }
 .mono { font: 600 16px ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.02em; overflow-wrap: anywhere; }
 .btn.danger-fill { background: var(--red); border-color: var(--red); color: #fff; }
 .sub-h { margin: 6px 0 -4px; font: 600 15px var(--body); }
+
+/* ---------- stage 4 ---------- */
+/* Drinks: caffeine and alcohol fold up under water. */
+.drink-fold { border-top: 1px solid var(--rule); }
+.fold-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.fold-head .fold-name { font-weight: 600; width: 76px; flex: none; }
+.fold-head .fold-sum { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); }
+.fold-head .fold-sum.warn { color: var(--warn-ink); font-weight: 600; }
+.fold-head svg { color: var(--muted); flex: none; }
+.drink-block.fold-body { padding-top: 0; }
+/* Fiber: a fourth macro, in a grain brown (no bumper plate is brown, and blue is water's). */
+.c-fiber { background: var(--fiber); }
+.macro-cols .macro .num { font-size: 20px; }
+.macro-cols .macro .unit { font-size: 13px; }
+@media (min-width: 1024px) { .macro-cols .macro .num { font-size: 28px; } }
+.diary-totals { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; padding: 12px 14px; }
+.diary-totals .num { font-size: 20px; }
+.diary-totals .label { font-size: 11px; line-height: 1.25; }
+.diary-totals .meter { display: block; margin-top: 4px; height: 4px; }
+.diary-totals .meter > span { display: block; height: 100%; border-radius: 3px; }
+@media (min-width: 1024px) { .diary-totals .num { font-size: 24px; } .diary-totals .label { font-size: 13px; } }
+/* Food overview: grams left for each macro, and the metric chips on the trends chart. */
+.left-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.left-tile { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.left-tile .name { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; }
+.left-tile .name .swatch { width: 7px; height: 12px; }
+.left-tile .num { font: 700 22px/1 var(--display); }
+.left-tile .unit { font: 500 13px var(--body); color: var(--muted); }
+.left-tile .meter { display: block; height: 5px; }
+.left-tile .meter > span { display: block; height: 100%; border-radius: 3px; }
+.metric-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.metric-chip { height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--field); background: var(--surface); color: var(--ink); font: 600 13px var(--body); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.metric-chip i { width: 8px; height: 8px; border-radius: 4px; }
+.metric-chip[aria-selected="true"] { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.diary-totals .meter { margin: 4px 0 2px; }
+.diary-totals .meter.blank { background: transparent; }
+/* Cards that fold up to their heading. */
+.fold-card { gap: 6px; }
+.fold-card.closed { padding-top: 6px; padding-bottom: 6px; }
+.fold-card-head { display: flex; align-items: center; gap: 4px; }
+.fold-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.fold-toggle h2 { flex: 1; }
+.fold-toggle svg { color: var(--muted); flex: none; }
+/* Rest timer: orange "Rest over" bar, and the mute button on the running timer. */
+.rest.over { background: #C25412; color: #fff; justify-content: flex-start; padding: 12px 12px 12px 16px; }
+.rest.over > svg { flex: none; width: 26px; height: 26px; }
+.rest.over .rest-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rest.over .rest-title { font: 700 26px/1 var(--display); }
+.rest.over .btn.outline-light { border-color: #fff; }
+.rest .rest-mute { color: #fff; width: 40px; height: 40px; border: 1px solid #3A5580; }
+.rest .rest-mute[aria-pressed="false"] { color: #B8C6DC; }
+@media (hover: hover) { .rest .rest-mute:hover { background: rgba(255,255,255,0.08); } }
+/* Settings > Rest timer */
+.set-row-line { display: flex; align-items: center; gap: 12px; min-height: 60px; border-top: 1px solid var(--rule); }
+.set-row-line:first-child, [role="radiogroup"] > .set-row-line:first-child { border-top: 0; }
+.set-row-line .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; cursor: pointer; }
+.set-row-line .title { font-weight: 600; }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper .icon-btn.bordered { width: 44px; height: 44px; color: var(--ink); }
+.rest-len { font: 700 24px var(--display); width: 54px; text-align: center; }
+.radio { width: 22px; height: 22px; margin: 0; accent-color: var(--primary); flex: none; }
+.range { width: 100%; height: 28px; accent-color: var(--primary); }
+.lock-preview { background: #0F1823; color: #fff; gap: 10px; }
+.note-card { background: #E8EDF2; color: #16202B; border-radius: 16px; padding: 12px; display: flex; gap: 10px; align-items: flex-start; }
+.note-card img { border-radius: 9px; flex: none; }
+.note-card .main { flex: 1; display: flex; flex-direction: column; gap: 1px; font-size: 14px; }
+.note-card .note-top { display: flex; justify-content: space-between; font-size: 13px; color: #4E5B69; }
+.note-card .note-top b { color: #16202B; }

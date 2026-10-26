@@ -2,7 +2,7 @@
 import { h, icon, fmt0, fmt1, todayISO, relDay, shortDate, toast, confirmSheet } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary, imperial, wUnit, toDisplayW, liftDisplay } from '../store.js';
-import { pageHead, loading } from '../components.js';
+import { pageHead, loading, foldCard } from '../components.js';
 import { chart, dateTicks } from '../charts.js';
 
 export const ACTIVITIES = ['Run', 'Walk', 'Bike', 'Jump rope', 'Row', 'Swim', 'Hike', 'Elliptical', 'Stairs', 'Other'];
@@ -71,6 +71,8 @@ function zonesBar(z) {
 
 /* ---------- cardio list ---------- */
 
+const addDaysISO = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
 export async function renderCardio(root) {
   await loadSummary();
   const from = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
@@ -82,6 +84,9 @@ export async function renderCardio(root) {
   const weeks = [];
   for (let k = 7; k >= 0; k--) { const d = new Date(thisWeek + 'T12:00:00'); d.setDate(d.getDate() - k * 7); weeks.push(d.toISOString().slice(0, 10)); }
   const byWeek = weeks.map(w => sessions.filter(s => weekStart(s.date) === w).reduce((a, s) => a + (s.distance_m || 0), 0));
+  const recent = sessions.filter(s => s.date >= addDaysISO(today, -89));
+  const recentDist = recent.reduce((a, s) => a + (s.distance_m || 0), 0);
+  const recentSummary = `${recent.length} session${recent.length === 1 ? '' : 's'}${recentDist ? `, ${fmt0(toDist(recentDist))} ${distUnit()}` : ''}`;
   const missing = sessions.filter(s => s.whoop_id && !s.distance_m && DISTANCE.has(s.activity) && s.date >= weeks[6]);
 
   const row = (s) => h('a', { class: 'cardio-row', href: s.id ? `#/train/cardio/${s.id}` : `#/train/cardio/whoop/${encodeURIComponent(s.whoop_id)}` },
@@ -93,7 +98,7 @@ export async function renderCardio(root) {
     h('span', { class: 'badge' + (s.whoop_id ? ' dark' : '') }, s.whoop_id ? 'WHOOP' : 'Logged'));
 
   root.replaceChildren(
-    pageHead('Training', 'Train', [h('a', { class: 'btn sm primary', href: '#/train/cardio/new' }, icon('plus', 18), 'Log cardio')]),
+    pageHead('Training', 'Cardio', [h('a', { class: 'btn sm primary', href: '#/train/cardio/new' }, icon('plus', 18), 'Log cardio')]),
     h('div', { class: 'stack' },
       trainSwitch('cardio'),
       h('div', { class: 'row' },
@@ -113,9 +118,8 @@ export async function renderCardio(root) {
                 : `${missing.length} WHOOP workouts from the last two weeks have no distance`),
               h('span', { class: 'small muted' }, 'Add it so it counts toward totals and records. Indoor sessions can stay as they are.')),
             h('span', { class: 'title' }, 'Add')) : null,
-          h('section', { class: 'card', 'aria-label': 'Recent cardio', style: { gap: 0 } },
-            h('h2', { style: { marginBottom: '6px' } }, 'Last 4 months'),
-            sessions.length ? h('div', { class: 'list' }, sessions.slice(0, 60).map(row))
+          foldCard({ key: 'cardio-history', title: 'Last 90 days', label: 'Recent cardio', summary: recentSummary },
+            recent.length ? h('div', { class: 'list' }, recent.map(row))
               : h('p', { class: 'note' }, 'Log a run, walk, ride or jump rope session, or connect WHOOP and your workouts show up here on their own.'))))));
 }
 
@@ -336,7 +340,7 @@ export async function renderProgress(root) {
       : h('p', { class: 'note small' }, 'Add your VO2 max from the WHOOP app on the Health screen to chart it here.'));
 
   root.replaceChildren(
-    pageHead('Training', 'Train'),
+    pageHead('Training', 'Progress'),
     h('div', { class: 'stack' },
       trainSwitch('progress'),
       h('div', { class: 'row' }, h('div', { class: 'grow-2 stack' }, totals), chartCard),

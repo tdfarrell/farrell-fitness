@@ -1,5 +1,5 @@
 // Small statistics and date helpers shared by Insights, the weekly report and the overviews.
-import { addDays } from './tdee.js';
+import { addDays, fiberTarget } from './tdee.js';
 
 export const mean = (a) => { const v = a.filter(x => x != null && !Number.isNaN(x)); return v.length ? v.reduce((p, q) => p + q, 0) / v.length : null; };
 export const sum = (a) => a.reduce((p, q) => p + (q || 0), 0);
@@ -91,9 +91,9 @@ export const monthName = (iso) => new Date(iso.slice(0, 8) + '15T12:00:00Z').toL
 
 /** The calorie and macro targets that applied on a given day (the check-in in force then). */
 export function targetsOn(date, { checkins, settings, current }) {
-  if (settings.program === 'manual') return settings.manual_targets;
+  if (settings.program === 'manual') return { ...settings.manual_targets, fiber: fiberTarget(settings.manual_targets.kcal, settings) };
   const c = (checkins || []).find(x => x.date <= date);
-  return c ? { kcal: c.kcal, protein: c.protein, carbs: c.carbs, fat: c.fat } : current;
+  return c ? { kcal: c.kcal, protein: c.protein, carbs: c.carbs, fat: c.fat, fiber: fiberTarget(c.kcal, settings) } : current;
 }
 
 /** How a logged day compares with its target: 'on' within 10%, 'over', 'under', or status words. */

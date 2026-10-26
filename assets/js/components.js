@@ -1,12 +1,42 @@
 // Pieces shared by several screens.
-import { h, icon, fmt0, fmt1, hoursMin, timeAgo, recoveryColor } from './ui.js';
+import { h, icon, fmt0, fmt1, hoursMin, timeAgo, recoveryColor, todayISO, longDate } from './ui.js';
+import { backButton } from './nav.js';
 
+/** Page header: back arrow (on every screen below the tab front pages), eyebrow, title, actions. */
 export function pageHead(eyebrow, title, actions) {
-  return h('header', { class: 'page-head' },
-    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+  const back = backButton();
+  return h('header', { class: 'page-head' + (back ? ' has-back' : '') + (back?.classList.contains('top') ? ' back-top' : '') },
+    back,
+    h('div', { class: 'titles' },
       eyebrow ? h('span', { class: 'eyebrow' }, eyebrow) : null,
       h('h1', null, title)),
     actions ? h('div', { class: 'actions' }, actions) : null);
+}
+
+/** "Today, October 26" or "Sunday, October 25". */
+export function dayLabel(iso) {
+  return iso === todayISO() ? `Today, ${longDate(iso).split(', ').slice(1).join(', ')}` : longDate(iso);
+}
+
+/**
+ * Header for screens that step through days: back arrow, date and title, previous and next.
+ * `prev`/`next` are hashes (null hides next and shows it disabled). Arrows replace the
+ * in-app history entry, so back leaves the screen instead of stepping back through dates.
+ */
+export function dateHead({ eyebrow, title, prev, next, actions, unit = 'day' }) {
+  const back = backButton();
+  const arrow = (href, dir, label) => href
+    ? h('a', { class: 'icon-btn bordered', href, 'aria-label': label }, icon(dir))
+    : h('button', { class: 'icon-btn bordered', disabled: true, 'aria-label': label }, icon(dir));
+  return h('header', { class: 'page-head date-head' + (back ? ' has-back' : '') + (back?.classList.contains('top') ? ' back-top' : '') },
+    back,
+    h('div', { class: 'titles' },
+      eyebrow ? h('span', { class: 'eyebrow' }, eyebrow) : null,
+      h('h1', null, title)),
+    h('div', { class: 'actions' },
+      actions || null,
+      prev !== undefined ? arrow(prev, 'left', `Previous ${unit}`) : null,
+      prev !== undefined ? arrow(next, 'right', `Next ${unit}`) : null));
 }
 
 /** Plate-colored bar of calories eaten by macro against the calorie target. */
@@ -30,10 +60,12 @@ export function macroCols(totals, targets) {
     h('span', { class: 'num' }, fmt0(eaten), h('span', { class: 'unit' }, ` / ${fmt0(target)} g`)),
     h('div', { class: 'meter', role: 'img', 'aria-label': `${name} ${fmt0(eaten)} of ${fmt0(target)} grams` },
       h('div', { class: cls, style: { width: `${Math.min(100, (eaten / (target || 1)) * 100)}%` } })));
-  return h('div', { class: 'grid-3' },
+  const fiber = targets.fiber != null;
+  return h('div', { class: fiber ? 'grid-4 macro-cols' : 'grid-3' },
     one('Protein', 'c-protein', totals.protein, targets.protein),
     one('Carbs', 'c-carbs', totals.carbs, targets.carbs),
-    one('Fat', 'c-fat', totals.fat, targets.fat));
+    one('Fat', 'c-fat', totals.fat, targets.fat),
+    fiber ? one('Fiber', 'c-fiber', totals.fiber || 0, targets.fiber) : null);
 }
 
 export function calorieCard(totals, targets, extra = {}) {
@@ -106,3 +138,27 @@ export function errorBox(e, retry) {
 }
 
 export { icon };
+
+/**
+ * A card that folds up to its heading. Each one remembers whether it's open (per device),
+ * under `key`. `summary` sits beside the title; `action` is an extra button in the header.
+ */
+export function foldCard({ key, title, summary, action, open: defaultOpen = true, label }, ...content) {
+  const read = () => { try { const s = JSON.parse(localStorage.getItem('ff_folds') || '{}'); return key in s ? !!s[key] : defaultOpen; } catch { return defaultOpen; } };
+  const write = (v) => { try { const s = JSON.parse(localStorage.getItem('ff_folds') || '{}'); s[key] = v; localStorage.setItem('ff_folds', JSON.stringify(s)); } catch {} };
+  const card = h('section', { class: 'card fold-card', 'aria-label': label || title });
+  const draw = () => {
+    const open = read();
+    card.classList.toggle('closed', !open);
+    card.replaceChildren(
+      h('div', { class: 'fold-card-head' },
+        h('button', { class: 'fold-toggle', 'aria-expanded': String(open), onclick: () => { write(!read()); draw(); } },
+          h('h2', null, title),
+          summary ? h('span', { class: 'small muted' }, summary) : null,
+          icon(open ? 'up' : 'down', 20)),
+        action || null),
+      ...(open ? content : []));
+  };
+  draw();
+  return card;
+}

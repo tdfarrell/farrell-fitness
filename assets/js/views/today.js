@@ -14,7 +14,7 @@ export async function render(root) {
   const { summary, model, targets, checkin, settings } = state;
   const days = summary.days;
   const tday = days[days.length - 1];
-  const totals = { kcal: tday.kcal, protein: tday.protein, carbs: tday.carbs, fat: tday.fat };
+  const totals = { kcal: tday.kcal, protein: tday.protein, carbs: tday.carbs, fat: tday.fat, fiber: tday.fiber || 0 };
   const w = tday.whoop || days[days.length - 2]?.whoop || null;
   const recent7 = days.slice(-7).map(d => d.whoop?.recovery).filter(v => v != null);
   const avgRec = recent7.length ? recent7.reduce((a, b) => a + b, 0) / recent7.length : null;
@@ -160,6 +160,7 @@ export async function render(root) {
 
   // Water, caffeine and alcohol. A water habit, if there is one, updates when water changes.
   const drinksEl = drinks ? drinksCard(today, drinks, {
+    inRow: true,
     onRefresh: () => rerender(root),
     onChange: () => {
       if (!hb?.habits.some(x => x.kind === 'water')) return;

@@ -143,6 +143,7 @@ function run_reminders(?int $now = null): array {
 function run_tick(): array {
     $out = ['at' => date('c')];
     try { $out['reminders'] = run_reminders(); } catch (Throwable $e) { $out['reminders'] = ['error' => $e->getMessage()]; }
+    if (function_exists('run_rest_alarms')) { try { $out['rest'] = run_rest_alarms(); } catch (Throwable $e) { $out['rest'] = ['error' => $e->getMessage()]; } }
     $lastWhoop = (int) (db_meta_get('last_whoop_tick') ?? 0);
     if (time() - $lastWhoop >= 55 * 60) {
         db_meta_set('last_whoop_tick', (string) time());

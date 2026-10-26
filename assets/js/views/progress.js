@@ -3,7 +3,7 @@ import { post } from '../api.js';
 import { state, loadSummary, markStale, fmtW, wUnit, toDisplayW } from '../store.js';
 import { pageHead } from '../components.js';
 import { chart } from '../charts.js';
-import { weekReview } from '../tdee.js';
+import { weekReview, fiberTarget } from '../tdee.js';
 import { proposeTargets, PHASE_TYPES } from '../phases.js';
 
 let forceCheckin = false;
@@ -92,7 +92,8 @@ export async function render(root) {
       h('div', null,
         macroRow('Protein', 'c-protein', proposed.protein, prev?.protein),
         macroRow('Carbs', 'c-carbs', proposed.carbs, prev?.carbs),
-        macroRow('Fat', 'c-fat', proposed.fat, prev?.fat)),
+        macroRow('Fat', 'c-fat', proposed.fat, prev?.fat),
+        macroRow('Fiber', 'c-fiber', proposed.fiber, prev ? fiberTarget(prev.kcal, settings) : null)),
       h('p', { class: 'note' }, why),
       h('button', { class: 'btn primary block', onclick: () => apply(false) }, 'Apply new targets'),
       prev ? h('button', { class: 'btn block', onclick: () => apply(true) }, 'Keep current targets') : null);
@@ -104,7 +105,8 @@ export async function render(root) {
       h('div', null,
         macroRow('Protein', 'c-protein', targets.protein),
         macroRow('Carbs', 'c-carbs', targets.carbs),
-        macroRow('Fat', 'c-fat', targets.fat)),
+        macroRow('Fat', 'c-fat', targets.fat),
+        macroRow('Fiber', 'c-fiber', targets.fiber)),
       coached
         ? h('p', { class: 'note' }, `Next check-in ${checkin.daysUntil <= 0 ? 'is due' : checkin.daysUntil === 1 ? 'is tomorrow' : `is ${longDate(checkin.next).split(',')[0]}, ${shortDate(checkin.next).split(', ')[1]}`}. ${goalText}.`)
         : h('p', { class: 'note' }, 'You set these in Settings. Switch to coached targets to have weekly check-ins adjust them.'),

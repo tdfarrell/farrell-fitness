@@ -1,5 +1,5 @@
 // Drinks card on Today: water, caffeine and alcohol counters, plus their settings sheet.
-import { h, icon, fmt0, fmt1, openSheet, toast } from '../ui.js';
+import { h, icon, fmt0, fmt1, openSheet, toast, todayISO } from '../ui.js';
 import { post } from '../api.js';
 import { state, markStale } from '../store.js';
 
@@ -15,10 +15,10 @@ const clock = (unix) => new Date(unix * 1000).toLocaleTimeString('en-US', { hour
 const clock12 = (hhmm) => { const [hr, mi] = hhmm.split(':').map(Number); const d = new Date(); d.setHours(hr, mi, 0, 0); return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: mi ? '2-digit' : undefined }).toLowerCase(); };
 
 /** The card. `data` is the drinks/day response; `onChange` re-renders whatever else depends on drinks. */
-export function drinksCard(date, data, { onChange, onRefresh } = {}) {
+export function drinksCard(date, data, { onChange, onRefresh, inRow = false } = {}) {
   const cfg = state.settings.drinks;
   if (!cfg.show?.length) return null;
-  const card = h('section', { class: 'card grow-2', 'aria-label': 'Drinks', style: { gap: '4px' } });
+  const card = h('section', { class: 'card' + (inRow ? ' grow-2' : ''), 'aria-label': 'Drinks', style: { gap: '4px' } });
   let d = data;
 
   const send = async (body) => {
@@ -65,17 +65,18 @@ export function drinksCard(date, data, { onChange, onRefresh } = {}) {
     const [ch, cm] = cfg.caffeine_cutoff.split(':').map(Number);
     const lateLast = last && (() => { const t = new Date(last.logged_at * 1000); return t.getHours() * 60 + t.getMinutes() >= ch * 60 + cm; })();
     const over = limit && tot > limit;
-    return h('div', { class: 'drink-block' },
+    const summary = lateLast ? `${fmt0(tot)} mg, last after your ${clock12(cfg.caffeine_cutoff)} cut-off`
+      : `${fmt0(tot)} mg${limit ? ` of ${fmt0(limit)}` : ''}, cut-off ${clock12(cfg.caffeine_cutoff)}`;
+    return [summary, lateLast || over, h('div', { class: 'drink-block fold-body' },
       h('div', { class: 'drink-head' },
         h('span', { style: { display: 'flex', flexDirection: 'column' } },
-          h('span', { style: { fontWeight: 600 } }, 'Caffeine'),
           h('span', { class: 'num drink-num' + (over ? ' over' : '') }, fmt0(tot), h('span', { class: 'drink-of' }, limit ? ` mg, limit ${fmt0(limit)}` : ' mg'))),
         lateLast ? h('span', { class: 'warn-tag' }, `Last at ${clock(last.logged_at)}, after your ${clock12(cfg.caffeine_cutoff)} cut-off`)
           : over ? h('span', { class: 'warn-tag' }, 'Over your daily limit') : null),
       h('div', { class: 'pills' },
         ...CAFFEINE.map(([n, mg]) => h('button', { class: 'pill', onclick: () => send({ kind: 'caffeine', amount: mg, label: n }) }, n, h('span', { class: 'muted' }, ` ${mg}`))),
         h('button', { class: 'pill', onclick: () => otherCaffeine(send) }, 'Other')),
-      items.length ? undoList(items, (x) => `${x.label || 'Caffeine'} ${clock(x.logged_at)}`, undo) : null);
+      items.length ? undoList(items, (x) => `${x.label || 'Caffeine'} ${clock(x.logged_at)}`, undo, date) : null)];
   }
 
   function alcohol() {
@@ -87,33 +88,51 @@ export function drinksCard(date, data, { onChange, onRefresh } = {}) {
     const meals = state.settings.meals;
     const meal = meals[meals.length - 1];
     const std = (v) => `${fmt1(v).replace('.0', '')} standard drink${v === 1 ? '' : 's'}`;
-    return h('div', { class: 'drink-block' },
+    const n = (v) => fmt1(v).replace('.0', '');
+    const day = date === todayISO() ? 'today' : 'this day';
+    const summary = `${d.totals.alcohol ? `${n(d.totals.alcohol)} ${day}` : `None ${day}`}, ${n(d.alcohol_week)} this week`;
+    return [summary, false, h('div', { class: 'drink-block fold-body' },
       h('div', { class: 'drink-head' },
         h('span', { style: { display: 'flex', flexDirection: 'column' } },
-          h('span', { style: { fontWeight: 600 } }, 'Alcohol'),
           h('span', { class: 'num drink-num' }, fmt1(d.totals.alcohol).replace('.0', ''),
             h('span', { class: 'drink-of' }, ` ${d.totals.alcohol === 1 ? 'standard drink' : 'standard drinks'}, ${fmt1(d.alcohol_week).replace('.0', '')} this week`)))),
       h('div', { class: 'pills' }, ALCOHOL.map(([n, s, kcal, carbs]) => h('button', { class: 'pill', 'aria-label': `${n}, ${std(s)}, ${kcal} kcal`, onclick: () =>
         send({ kind: 'alcohol', amount: s, label: n, kcal, carbs, log_food: cfg.alcohol_to_log, meal }) }, n, h('span', { class: 'muted' }, ` ${kcal} kcal`)))),
       h('label', { class: 'check', style: { minHeight: '44px', fontSize: '14px' } }, cb, `Add the calories to my food log (${meal})`),
-      items.length ? undoList(items, (x) => `${x.label || 'Drink'} ${clock(x.logged_at)}`, undo) : null);
+      items.length ? undoList(items, (x) => `${x.label || 'Drink'} ${clock(x.logged_at)}`, undo, date) : null)];
+  }
+
+  // Caffeine and alcohol fold up under water; each remembers whether it's open.
+  function fold(key, name, [summary, warn, body]) {
+    const open = !!foldState()[key];
+    const btn = h('button', { class: 'fold-head', 'aria-expanded': String(open), onclick: () => {
+      const s = foldState(); s[key] = !s[key]; saveFold(s); draw();
+    } },
+      h('span', { class: 'fold-name' }, name),
+      h('span', { class: 'fold-sum' + (warn ? ' warn' : '') }, summary),
+      icon(open ? 'up' : 'down', 18));
+    return h('div', { class: 'drink-fold' }, btn, open ? body : null);
   }
 
   function draw() {
-    const parts = { water, caffeine, alcohol };
+    const order = ['water', 'caffeine', 'alcohol'].filter(k => cfg.show.includes(k));
     card.replaceChildren(
       h('div', { class: 'card-head', style: { alignItems: 'center' } },
         h('h2', null, 'Drinks'),
-        h('button', { class: 'icon-btn', 'aria-label': 'Drink settings', onclick: () => openDrinkSettings(() => onRefresh?.()) }, icon('settings', 20))),
-      ...cfg.show.map((k, i) => { const el = parts[k](); if (i) el.classList.add('ruled'); return el; }));
+        h('button', { class: 'icon-btn', 'aria-label': 'Drink settings', onclick: () => openDrinkSettings(() => onRefresh?.()) }, icon('sliders', 20))),
+      ...order.map(k => (k === 'water' ? water() : fold(k, k === 'caffeine' ? 'Caffeine' : 'Alcohol', k === 'caffeine' ? caffeine() : alcohol()))));
   }
   draw();
   return card;
 }
 
-function undoList(items, text, undo) {
+const FOLD_KEY = 'ff_drinks_open';
+function foldState() { try { return JSON.parse(localStorage.getItem(FOLD_KEY) || '{}') || {}; } catch { return {}; } }
+function saveFold(s) { try { localStorage.setItem(FOLD_KEY, JSON.stringify(s)); } catch {} }
+
+function undoList(items, text, undo, date) {
   return h('div', { class: 'undo-list' },
-    h('span', { class: 'tiny muted' }, 'Today:'),
+    h('span', { class: 'tiny muted' }, date === todayISO() ? 'Today:' : 'This day:'),
     ...items.map(x => h('button', { class: 'undo-chip', 'aria-label': `Remove ${text(x)}`, onclick: () => undo(x.id) }, text(x), icon('close', 14))));
 }
 

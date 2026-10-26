@@ -31,7 +31,8 @@ export function defaultTarget(key, settings, kcal) {
   const age = new Date().getFullYear() - (settings?.birth_year || 1985);
   const older = age >= 51;
   switch (key) {
-    case 'fiber': return female ? (older ? 21 : 25) : (older ? 30 : 38);
+    // 14 g per 1,000 kcal of the calorie target (the US guideline), so it moves with your targets.
+    case 'fiber': return Math.round(14 * (kcal || 2000) / 1000);
     case 'sodium': return 2300;
     case 'sat_fat': return Math.round(((kcal || 2000) * 0.1) / 9);
     case 'added_sugar': return female ? 25 : 36;

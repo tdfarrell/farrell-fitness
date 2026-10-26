@@ -24,6 +24,13 @@ function default_settings(): array {
         'meals' => ['Breakfast', 'Lunch', 'Dinner', 'Snacks'],
         'theme' => 'system',             // system | light | dark
         'rest_seconds' => 120,
+        'rest_alarm' => [
+            'sound' => true,             // play a tone when rest ends (app open)
+            'tone' => 'bell',            // bell | whistle | beeps | chime
+            'volume' => 0.7,
+            'vibrate' => true,           // Android; iPhone web apps can't vibrate
+            'notify' => true,            // push to this device when the phone is locked
+        ],
         'intro_dismissed' => false,      // hide the Getting started card on Today
         'lift_days_goal' => 4,           // lifting sessions per week, for the Train overview
         'body_fat_source' => 'auto',     // auto | tape | scale | manual
@@ -81,6 +88,13 @@ function save_settings(int $uid, array $patch): array {
     $s['height_cm'] = max(100, min(250, (float) $s['height_cm']));
     $s['meals'] = array_values(array_slice(array_filter(array_map(fn($m) => mb_substr(trim((string) $m), 0, 32), (array) $s['meals'])), 0, 8)) ?: ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
     $s['rest_seconds'] = max(15, min(600, (int) $s['rest_seconds']));
+    $ra = &$s['rest_alarm'];
+    $ra['sound'] = (bool) $ra['sound'];
+    $ra['tone'] = in_array($ra['tone'], ['bell', 'whistle', 'beeps', 'chime'], true) ? $ra['tone'] : 'bell';
+    $ra['volume'] = round(max(0, min(1, (float) $ra['volume'])), 2);
+    $ra['vibrate'] = (bool) $ra['vibrate'];
+    $ra['notify'] = (bool) $ra['notify'];
+    unset($ra);
     $s['intro_dismissed'] = (bool) $s['intro_dismissed'];
     $s['lift_days_goal'] = max(0, min(14, (int) $s['lift_days_goal']));
     $s['body_fat_source'] = in_array($s['body_fat_source'], ['auto', 'tape', 'scale', 'manual'], true) ? $s['body_fat_source'] : 'auto';

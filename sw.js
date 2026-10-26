@@ -15,6 +15,7 @@ const PRECACHE = [
   'assets/js/views/body.js', 'assets/js/views/insights.js', 'assets/js/views/report.js', 'assets/js/views/projection.js', 'assets/js/views/sync.js',
   'assets/js/nutrients.js', 'assets/js/fill.js', 'assets/js/phases.js', 'assets/js/views/micros.js', 'assets/js/views/fillmacros.js',
   'assets/js/views/drinks.js', 'assets/js/views/phases.js', 'assets/js/views/users.js',
+  'assets/js/nav.js', 'assets/js/restalarm.js', 'assets/js/views/resttimer.js',
   'icons/icon-v2.svg', 'icons/logo-mark.svg', 'icons/favicon-v2-32.png', 'icons/icon-v2-192.png', 'icons/apple-touch-icon-v2.png',
   'assets/fonts/barlow-latin-400-normal.woff2', 'assets/fonts/barlow-latin-500-normal.woff2', 'assets/fonts/barlow-latin-600-normal.woff2',
   'assets/fonts/barlow-condensed-latin-500-normal.woff2', 'assets/fonts/barlow-condensed-latin-600-normal.woff2', 'assets/fonts/barlow-condensed-latin-700-normal.woff2',
@@ -80,6 +81,8 @@ self.addEventListener('push', (e) => {
   e.waitUntil(self.registration.showNotification(m.title || 'Farrell Fitness', {
     body: m.body || '',
     tag: m.tag || undefined,
+    renotify: !!(m.tag && m.renotify),
+    vibrate: Array.isArray(m.vibrate) ? m.vibrate : undefined,
     icon: 'icons/icon-v2-192.png',
     badge: 'icons/favicon-v2-32.png',
     data: { url: m.url || '#/today' },

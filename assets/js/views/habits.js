@@ -1,7 +1,7 @@
 // Habits: a daily checklist. Some habits check themselves from other data.
 import { h, icon, fmt0, fmt1, todayISO, shortDate, openSheet, toast, confirmSheet } from '../ui.js';
 import { get, post } from '../api.js';
-import { pageHead, loading } from '../components.js';
+import { pageHead, loading, dateHead, dayLabel } from '../components.js';
 import { addDays } from '../tdee.js';
 import { gripHandle, makeSortable } from '../sortable.js';
 import { state } from '../store.js';
@@ -110,10 +110,7 @@ export async function render(root, params) {
   });
 
   root.replaceChildren(
-    h('div', { class: 'date-nav' },
-      h('a', { class: 'icon-btn', href: `#/habits/${addDays(date, -1)}`, 'aria-label': 'Previous day' }, icon('left')),
-      h('div', { class: 'center' }, h('h1', null, 'Habits'), h('span', { class: 'muted', style: { fontSize: '14px' } }, date === todayISO() ? `Today, ${shortDate(date).split(', ').slice(1).join(', ')}` : shortDate(date))),
-      date < todayISO() ? h('a', { class: 'icon-btn', href: `#/habits/${addDays(date, 1)}`, 'aria-label': 'Next day' }, icon('right')) : h('span', { style: { width: '44px' } })),
+    dateHead({ eyebrow: dayLabel(date), title: 'Habits', prev: `#/habits/${addDays(date, -1)}`, next: date < todayISO() ? `#/habits/${addDays(date, 1)}` : null }),
     h('div', { class: 'row' },
       h('div', { class: 'grow-2 stack' },
         h('section', { class: 'card', 'aria-label': 'Progress' },

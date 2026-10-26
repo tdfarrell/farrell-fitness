@@ -2,7 +2,7 @@
 import { h, icon, longDate, todayISO, openSheet, toast } from '../ui.js';
 import { get, post } from '../api.js';
 import { state, loadSummary, markStale } from '../store.js';
-import { loading } from '../components.js';
+import { loading, dateHead, dayLabel } from '../components.js';
 import { NUTRIENTS, GROUPS, targetFor, defaultTarget, fmtAmount } from '../nutrients.js';
 
 let period = 'day';
@@ -82,10 +82,7 @@ export async function render(root, params = []) {
     } }, 'Fill them in')) : null;
 
   root.replaceChildren(
-    h('div', { class: 'date-nav' },
-      h('a', { class: 'icon-btn', href: `#/food/${date === todayISO() ? 'diary' : date}`, 'aria-label': 'Back to the food log' }, icon('left')),
-      h('div', { class: 'center' }, h('h1', null, 'Nutrients'), h('span', { class: 'muted', style: { fontSize: '14px' } }, longDate(date))),
-      h('button', { class: 'btn sm', onclick: () => openTargets(settings, kcal, refresh) }, 'Targets')),
+    dateHead({ eyebrow: dayLabel(date), title: 'Nutrients', actions: h('button', { class: 'btn sm', onclick: () => openTargets(settings, kcal, refresh) }, 'Targets') }),
     h('div', { class: 'stack', style: { maxWidth: '720px' } },
       tabs,
       coverage ? h('p', { class: 'note small', style: { margin: '0 4px' } }, coverage)

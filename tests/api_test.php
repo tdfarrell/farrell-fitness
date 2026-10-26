@@ -22,7 +22,7 @@ putenv("FF_CONFIG=$tmp.php");
 // An "old" database: the first release's tables only, so the migration path runs on first request.
 config();
 if ($my) { db()->exec('SET FOREIGN_KEY_CHECKS = 0'); foreach (db()->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $t) db()->exec("DROP TABLE `$t`"); }
-$old = array_filter(schema_sql($my ? 'mysql' : 'sqlite'), fn($s) => !preg_match('/\b(meta|meal_plans|cardio|health_items|health_doses|labs|glucose|measurements|habits|habit_logs|journal)\b/', $s));
+$old = array_filter(schema_sql($my ? 'mysql' : 'sqlite'), fn($s) => !preg_match('/\b(meta|meal_plans|cardio|health_items|health_doses|labs|glucose|measurements|habits|habit_logs|journal|rest_alarms)\b/', $s));
 foreach ($old as $s) { try { db()->exec($s); } catch (PDOException $e) { if (!str_contains($e->getMessage(), 'Duplicate')) throw $e; } }
 db_insert('users', ['username' => 'tim', 'password_hash' => password_hash('testpass1234', PASSWORD_DEFAULT), 'settings' => null, 'created_at' => time()]);
 seed_exercises(1);
@@ -252,7 +252,7 @@ check($st === 200 && $r['saved'] === 2 && $s['uses'] === 2 && $s['count'] === 3,
 
 /* push and reminders */
 require_once __DIR__ . '/../api/lib/auth.php';
-foreach (['settings', 'cardio', 'health', 'habits', 'photos', 'backup', 'push', 'reminders', 'whoop'] as $lib) require_once __DIR__ . "/../api/lib/$lib.php";
+foreach (['settings', 'cardio', 'health', 'habits', 'photos', 'backup', 'push', 'reminders', 'rest', 'whoop'] as $lib) require_once __DIR__ . "/../api/lib/$lib.php";
 [$st, $r] = api('push/key');
 check($st === 200 && strlen(b64u_dec($r['public_key'])) === 65, 'VAPID public key served');
 [, $uaPub] = p256_new();
@@ -273,6 +273,32 @@ check(isset($sent[0]) && $sent[0]['headers']['Content-Encoding'] === 'aes128gcm'
 $before = count($sent);
 run_reminders_for(1, $now + 300);
 check(count($sent) === $before, 'a reminder is sent once a day');
+
+/* rest timer alarm: a push to this one device when the rest ends */
+[$st] = api('rest/schedule', ['endpoint' => 'https://push.example.test/sub/other', 'in_seconds' => 90]);
+check($st === 400, 'rest alarm needs reminders on for this device');
+[$st] = api('rest/schedule', ['endpoint' => 'https://push.example.test/sub/abc', 'in_seconds' => 5000]);
+check($st === 400, 'rest alarm longer than 15 minutes rejected');
+[$st, $r] = api('rest/schedule', ['endpoint' => 'https://push.example.test/sub/abc', 'in_seconds' => 120, 'title' => 'Rest over', 'body' => 'Bench press set 3', 'url' => '#/train/active']);
+check($st === 200 && $r['ok'] && abs($r['fire_at'] - time() - 120) <= 2, 'rest alarm scheduled');
+[$st] = api('rest/schedule', ['endpoint' => 'https://push.example.test/sub/abc', 'in_seconds' => 90, 'url' => 'javascript:alert(1)']);
+check((int) q_val('SELECT COUNT(*) FROM rest_alarms') === 1 && q_val('SELECT url FROM rest_alarms') === '#/train/active', 'a new rest replaces the old alarm; odd links are ignored');
+$sent = [];
+$GLOBALS['ff_http_mock'] = function ($method, $url, $headers, $body) use (&$sent) { $sent[] = compact('url', 'headers', 'body'); return [201, '']; };
+check(run_rest_alarms()['sent'] === 0 && !$sent, 'nothing sent before the rest ends');
+q('UPDATE rest_alarms SET fire_at = ?', [time() - 5]);
+check(run_rest_alarms()['sent'] === 1 && count($sent) === 1 && $sent[0]['url'] === 'https://push.example.test/sub/abc' && $sent[0]['headers']['TTL'] === '90', 'due rest alarm pushed to that device only');
+check((int) q_val('SELECT COUNT(*) FROM rest_alarms') === 0 && run_rest_alarms()['sent'] === 0, 'a rest alarm is sent once');
+api('rest/schedule', ['endpoint' => 'https://push.example.test/sub/abc', 'in_seconds' => 60]);
+q('UPDATE rest_alarms SET fire_at = ?', [time() - 600]);
+check(run_rest_alarms()['sent'] === 0 && (int) q_val('SELECT COUNT(*) FROM rest_alarms') === 0, 'a rest alarm missed by minutes is dropped, not sent late');
+api('rest/schedule', ['endpoint' => 'https://push.example.test/sub/abc', 'in_seconds' => 60]);
+[$st] = api('rest/cancel', ['endpoint' => 'https://push.example.test/sub/abc']);
+check($st === 200 && (int) q_val('SELECT COUNT(*) FROM rest_alarms') === 0, 'rest alarm cancelled');
+[$st, $r] = api('settings', ['rest_alarm' => ['tone' => 'foghorn', 'volume' => 3, 'notify' => false], 'rest_seconds' => 5]);
+check($st === 200 && $r['settings']['rest_alarm']['tone'] === 'bell' && $r['settings']['rest_alarm']['volume'] == 1 && $r['settings']['rest_alarm']['notify'] === false && $r['settings']['rest_alarm']['sound'] === true && $r['settings']['rest_seconds'] === 15, 'rest timer settings saved and cleaned');
+api('settings', ['rest_alarm' => ['notify' => true], 'rest_seconds' => 120]);
+
 $GLOBALS['ff_http_mock'] = fn() => [410, ''];
 push_to_user(1, ['title' => 'x']);
 check((int) q_val('SELECT COUNT(*) FROM push_subscriptions') === 0, 'expired subscription removed on 410');
@@ -340,8 +366,11 @@ check($r['missing'] === 1, 'saved USDA foods without nutrients are counted for f
 [$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'water', 'amount' => -1000]);
 check($st === 200 && $r['totals']['water'] == 0, 'taking water off never goes below zero');
 api('drinks/add', ['date' => $today, 'kind' => 'water', 'amount' => 3000]);
-api('drinks/add', ['date' => $today, 'kind' => 'caffeine', 'amount' => 95, 'label' => 'Coffee', 'logged_at' => strtotime("$today 08:00")]);
-[$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'caffeine', 'amount' => 200, 'label' => 'Pre-workout', 'logged_at' => strtotime("$today 15:30")]);
+// Both drinks in the past, with the cut-off between them, so this works at any time of day.
+$cafA = max(strtotime("$today 00:01"), time() - 3600); $cafB = time() - 60;
+api('settings', ['drinks' => ['caffeine_cutoff' => date('H:i', intdiv($cafA + $cafB, 2))]]);
+api('drinks/add', ['date' => $today, 'kind' => 'caffeine', 'amount' => 95, 'label' => 'Coffee', 'logged_at' => $cafA]);
+[$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'caffeine', 'amount' => 200, 'label' => 'Pre-workout', 'logged_at' => $cafB]);
 check($st === 200 && $r['totals']['caffeine'] == 295, 'caffeine adds up');
 [$st, $r] = api('drinks/add', ['date' => $today, 'kind' => 'alcohol', 'amount' => 1, 'label' => 'Beer', 'kcal' => 150, 'carbs' => 13, 'log_food' => true, 'meal' => 'Snacks']);
 $beer = end($r['drinks']);

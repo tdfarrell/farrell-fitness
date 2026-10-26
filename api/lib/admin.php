@@ -100,7 +100,7 @@ function route_admin_users_signout(int $uid, string $m) {
 /** Every table with a user_id column. workout_sets hang off workouts and go with them. */
 const USER_TABLES = ['auth_tokens', 'foods', 'diary_entries', 'days', 'weights', 'exercises', 'routines', 'checkins', 'whoop_tokens', 'whoop_daily',
     'whoop_workouts', 'meal_plans', 'cardio', 'health_items', 'health_doses', 'labs', 'glucose', 'measurements', 'habits', 'habit_logs', 'journal',
-    'med_doses', 'progress_photos', 'push_subscriptions', 'reminder_log', 'sync_keys', 'drinks'];
+    'med_doses', 'progress_photos', 'push_subscriptions', 'reminder_log', 'sync_keys', 'drinks', 'rest_alarms'];
 
 function delete_user_data(int $id): void {
     q('DELETE FROM workout_sets WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = ?)', [$id]);

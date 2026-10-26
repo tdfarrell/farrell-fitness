@@ -90,8 +90,7 @@ export async function render(root) {
     h('p', { class: 'tiny muted' }, bk.driver === 'sqlite' ? 'Backups are a compressed copy of the database file.' : 'Backups are compressed SQL files. To restore one, import it in cPanel > phpMyAdmin. Progress photos are files on the server and aren\'t included.'));
 
   root.replaceChildren(
-    h('div', { class: 'page-head' }, h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-      h('a', { href: '#/settings', class: 'back-link' }, icon('left', 18), 'Settings'), h('h1', null, 'Reminders and sync'))),
+    pageHead('Settings', 'Reminders and sync'),
     h('div', { class: 'stack', style: { maxWidth: '760px' } }, reminders, scaleCard, backups));
 }
 

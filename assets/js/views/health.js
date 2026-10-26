@@ -223,8 +223,7 @@ export async function renderMeds(root) {
   };
   draw(r.items);
   root.replaceChildren(
-    h('div', { class: 'page-head' }, h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-      h('a', { href: '#/health', class: 'back-link' }, icon('left', 18), 'Health'), h('h1', null, 'Meds and supplements'))),
+    pageHead('Health', 'Meds and supplements'),
     h('div', { class: 'stack', style: { maxWidth: '640px' } }, hero, list,
       h('p', { class: 'note small' }, 'Reminders for each dose time are set in ', h('a', { href: '#/settings/sync' }, 'Reminders and sync'), '.')));
 }
@@ -504,10 +503,7 @@ async function renderLabs(root) {
     h('p', { class: 'tiny muted' }, 'Ranges come from your lab report. This is a record, not medical advice.'));
 
   root.replaceChildren(
-    h('div', { class: 'page-head' },
-      h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-        h('a', { href: '#/health', class: 'back-link' }, icon('left', 18), 'Health'),
-        h('h1', null, 'Labs and blood sugar'))),
+    pageHead('Health', 'Labs and blood sugar'),
     h('div', { class: 'row' }, h('div', { class: 'grow-2 stack' }, glucose), h('div', { class: 'grow-3 stack' }, labCard)));
 }
 

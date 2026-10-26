@@ -418,6 +418,18 @@ function schema_sql(string $driver): array {
             diary_entry_id INT,
             logged_at INT NOT NULL
         )",
+        // Added in schema version 5: a pending rest timer push, one per device.
+        "rest_alarms (
+            id $pk,
+            user_id INT NOT NULL,
+            endpoint_hash VARCHAR(64) NOT NULL UNIQUE,
+            fire_at INT NOT NULL,
+            token VARCHAR(32) NOT NULL,
+            title VARCHAR(120),
+            body VARCHAR(255),
+            url VARCHAR(80),
+            created_at INT NOT NULL
+        )",
     ];
     $sql = array_map(fn($x) => "CREATE TABLE IF NOT EXISTS $x$tail", $t);
     $idx = [
@@ -441,7 +453,7 @@ function schema_sql(string $driver): array {
 }
 
 // Bump when the schema changes. Existing databases are brought up to date on the next request.
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /** Columns added after the first release: [table, column, type]. */
 function added_columns(): array {

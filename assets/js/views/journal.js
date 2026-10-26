@@ -2,7 +2,7 @@
 // Each save also stores a snapshot of the day (recovery, sleep, food, training, habits).
 import { h, icon, fmt0, todayISO, shortDate, relDay, hoursMin, toast, confirmSheet, debounce } from '../ui.js';
 import { get, post } from '../api.js';
-import { loading } from '../components.js';
+import { loading, dateHead, dayLabel } from '../components.js';
 import { addDays } from '../tdee.js';
 
 const SCALES = [['mood', 'Mood', 'Low', 'Great'], ['energy', 'Energy', 'Drained', 'Energized'], ['stress', 'Stress', 'Calm', 'Overloaded']];
@@ -90,10 +90,7 @@ export async function render(root, params) {
   search.addEventListener('input', debounce(async () => drawList((await get('journal/list', { limit: 50, q: search.value.trim() })).entries), 300));
 
   root.replaceChildren(
-    h('div', { class: 'date-nav' },
-      h('a', { class: 'icon-btn', href: `#/journal/${addDays(date, -1)}`, 'aria-label': 'Previous day' }, icon('left')),
-      h('div', { class: 'center' }, h('h1', null, 'Journal'), h('span', { class: 'muted', style: { fontSize: '14px' } }, date === todayISO() ? `Today, ${shortDate(date).split(', ').slice(1).join(', ')}` : shortDate(date))),
-      date < todayISO() ? h('a', { class: 'icon-btn', href: `#/journal/${addDays(date, 1)}`, 'aria-label': 'Next day' }, icon('right')) : h('span', { style: { width: '44px' } })),
+    dateHead({ eyebrow: dayLabel(date), title: 'Journal', prev: `#/journal/${addDays(date, -1)}`, next: date < todayISO() ? `#/journal/${addDays(date, 1)}` : null }),
     h('div', { class: 'row' },
       h('div', { class: 'grow-3 stack' }, editor),
       h('section', { class: 'card grow-2', 'aria-label': 'Past entries' },

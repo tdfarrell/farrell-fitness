@@ -2,6 +2,8 @@ import { h, icon, fmt0, fmt1, todayISO, shortDate, relDay, openSheet, toast, con
 import { get, post } from '../api.js';
 import { state, loadSummary, markStale } from '../store.js';
 import { addDays } from '../tdee.js';
+import { dateHead, dayLabel } from '../components.js';
+import { drinksCard } from './drinks.js';
 
 const OZ = 28.3495;
 
@@ -15,23 +17,29 @@ export async function render(root, params) {
   await loadSummary();
   const { targets, settings } = state;
   const meals = settings.meals;
-  const data = await get('diary', { date });
+  const [data, drinks] = await Promise.all([get('diary', { date }),
+    settings.drinks?.show?.length ? get('drinks', { date }).catch(() => null) : null]);
   const entries = data.entries;
-  const sum = (list) => list.reduce((a, e) => ({ kcal: a.kcal + e.kcal, protein: a.protein + e.protein, carbs: a.carbs + e.carbs, fat: a.fat + e.fat }), { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+  const sum = (list) => list.reduce((a, e) => ({ kcal: a.kcal + e.kcal, protein: a.protein + e.protein, carbs: a.carbs + e.carbs, fat: a.fat + e.fat, fiber: a.fiber + (e.fiber || 0) }), { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 });
   const tot = sum(entries);
   const refresh = () => { markStale(); render(root, [date]); };
 
-  const totalsCard = h('div', { class: 'card', style: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px', padding: '12px 16px' } },
+  const totalsCard = h('div', { class: 'card diary-totals' },
     [['kcal', fmt0(tot.kcal), `of ${fmt0(targets.kcal)} kcal`, 'var(--kcal)'],
      ['protein', `${fmt0(tot.protein)} g`, `of ${fmt0(targets.protein)} protein`],
      ['carbs', `${fmt0(tot.carbs)} g`, `of ${fmt0(targets.carbs)} carbs`],
-     ['fat', `${fmt0(tot.fat)} g`, `of ${fmt0(targets.fat)} fat`]].map(([, v, l, c]) =>
-      h('div', { class: 'stat' }, h('span', { class: 'num', style: { fontSize: '22px', color: c || 'inherit' } }, v), h('span', { class: 'label' }, l))));
+     ['fat', `${fmt0(tot.fat)} g`, `of ${fmt0(targets.fat)} fat`],
+     ['fiber', `${fmt0(tot.fiber)} g`, `of ${fmt0(targets.fiber)} fiber`]].map(([k, v, l, c]) =>
+      h('div', { class: 'stat' },
+        h('span', { class: 'num', style: { color: c || 'inherit' } }, v),
+        h('span', { class: 'meter' + (k === 'kcal' ? ' blank' : ''), role: k === 'kcal' ? null : 'img', 'aria-label': k === 'kcal' ? null : `${k} ${fmt0(tot[k])} of ${fmt0(targets[k])} grams` },
+          k === 'kcal' ? null : h('span', { class: `c-${k}`, style: { width: `${Math.min(100, (tot[k] / (targets[k] || 1)) * 100)}%` } })),
+        h('span', { class: 'label' }, l))));
 
   const statusLabels = { auto: 'Counted if anything is logged', complete: 'Logged completely', fasted: 'Fasted (0 kcal)', exclude: 'Left out of expenditure' };
   const statusBtn = h('button', { class: 'btn sm ghost', onclick: () => openDayStatus(date, data.status, refresh) },
     date < todayISO() ? `Day: ${statusLabels[data.status].toLowerCase()}` : 'Day options');
-  const remaining = { kcal: targets.kcal - tot.kcal, protein: targets.protein - tot.protein, carbs: targets.carbs - tot.carbs, fat: targets.fat - tot.fat };
+  const remaining = { kcal: targets.kcal - tot.kcal, protein: targets.protein - tot.protein, carbs: targets.carbs - tot.carbs, fat: targets.fat - tot.fat, fiber: targets.fiber - tot.fiber };
   const fillBtn = date >= addDays(todayISO(), -1) ? h('button', { class: 'btn sm', onclick: async () => {
     const { openFillMacros } = await import('./fillmacros.js');
     const { guessMeal } = await import('./today.js');
@@ -58,18 +66,13 @@ export async function render(root, params) {
   });
 
   root.replaceChildren(
-    h('div', { class: 'date-nav' },
-      h('a', { class: 'icon-btn', href: `#/food/${addDays(date, -1)}`, 'aria-label': 'Previous day' }, icon('left')),
-      h('div', { class: 'center' },
-        h('h1', null, 'Food log'),
-        h('span', { class: 'muted', style: { fontSize: '14px' } }, date === todayISO() ? `Today, ${shortDate(date).split(', ').slice(1).join(', ')}` : shortDate(date))),
-      date < todayISO() ? h('a', { class: 'icon-btn', href: `#/food/${addDays(date, 1)}`, 'aria-label': 'Next day' }, icon('right'))
-        : h('span', { style: { width: '44px' } })),
+    dateHead({ eyebrow: dayLabel(date), title: 'Food log', prev: `#/food/${addDays(date, -1)}`, next: date < todayISO() ? `#/food/${addDays(date, 1)}` : null }),
     h('div', { class: 'stack' },
       foodSwitch('diary'),
       totalsCard,
       h('div', { class: 'diary-tools' }, h('div', { class: 'row', style: { gap: '8px' } }, fillBtn, nutBtn), statusBtn),
-      h('div', { class: 'diary-grid' }, mealCards)));
+      h('div', { class: 'diary-grid' }, mealCards),
+      drinks ? drinksCard(date, drinks, { onRefresh: refresh }) : null));
 }
 
 /** Overview | Diary | Plans switch shared by the food screens. */

@@ -10,6 +10,7 @@ const LB = 2.20462;
 
 export async function render(root, params = []) {
   if (params[0] === 'sync') return (await import('./sync.js')).render(root);
+  if (params[0] === 'rest') return (await import('./resttimer.js')).render(root);
   await loadSummary(true);
   const s = structuredClone(state.settings);
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
@@ -73,7 +74,6 @@ export async function render(root, params = []) {
       initial_expenditure: v('st-init') ? n('st-init') : null,
       units: unitsNow, theme: v('st-theme'),
       meals: [...mealList.querySelectorAll('input')].map(x => x.value.trim()).filter(Boolean),
-      rest_seconds: n('st-rest'),
       lift_days_goal: n('st-lift'),
     };
     try {
@@ -109,7 +109,6 @@ export async function render(root, params = []) {
       h('div', { class: 'form-grid' },
         field('Units', sel('st-units', s.units, [['imperial', 'Pounds (lb)'], ['metric', 'Kilograms (kg)']])),
         field('Appearance', sel('st-theme', s.theme, [['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']])),
-        field('Rest timer (seconds)', inp('st-rest', s.rest_seconds, { inputmode: 'numeric' })),
         field('Lifting sessions a week', inp('st-lift', s.lift_days_goal, { inputmode: 'numeric' }), 'Goal shown on the Train overview')),
       h('div', { class: 'field' }, h('span', null, 'Meals'), h('span', { class: 'tiny muted', style: { fontWeight: 400 } }, 'Drag to reorder, up to 8.'), mealList,
         h('button', { class: 'btn sm ghost', type: 'button', style: { alignSelf: 'flex-start' }, onclick: () => { if (meals.length < 8) { meals.push(''); drawMeals(); mealList.lastChild?.querySelector('input')?.focus(); } } }, icon('plus', 16), 'Add a meal'))),
@@ -173,6 +172,12 @@ export async function render(root, params = []) {
           h('span', { class: 'journal-ic', 'aria-hidden': 'true' }, icon('bell')),
           h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, h('span', { style: { fontWeight: 600 } }, 'Reminders and sync'),
             h('span', { class: 'small muted' }, 'Notifications, smart scale, backups'))),
+        icon('right', 20)),
+      h('a', { class: 'linkcard', href: '#/settings/rest' },
+        h('span', { style: { display: 'flex', alignItems: 'center', gap: '14px' } },
+          h('span', { class: 'journal-ic', 'aria-hidden': 'true' }, icon('timer')),
+          h('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, h('span', { style: { fontWeight: 600 } }, 'Rest timer'),
+            h('span', { class: 'small muted' }, 'Default rest, tone, alert on a locked phone'))),
         icon('right', 20)),
       state.user?.is_admin ? h('a', { class: 'linkcard', href: '#/users' },
         h('span', { style: { display: 'flex', alignItems: 'center', gap: '14px' } },

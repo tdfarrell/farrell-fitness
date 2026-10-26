@@ -128,6 +128,12 @@ export function computeModel(days, settings, today) {
 }
 
 /** Daily targets from an expenditure estimate, trend weight and goal settings. */
+/** Fiber target in grams: your own (Nutrients > Targets) or 14 g per 1,000 kcal. */
+export function fiberTarget(kcal, settings) {
+  const own = settings?.nutrient_targets?.fiber;
+  return own > 0 ? own : Math.round(14 * (kcal || 2000) / 1000);
+}
+
 export function targetsFor(expenditure, trendKg, settings, kcalOverride = null) {
   const g = settings.goal || {};
   const sign = g.type === 'lose' ? -1 : g.type === 'gain' ? 1 : 0;
@@ -149,17 +155,17 @@ export function targetsFor(expenditure, trendKg, settings, kcalOverride = null) 
     carbs = Math.round((kcal - protein * 4 - fat * 9) / 4);
   }
   if (carbs < 0) { carbs = 0; fat = Math.max(0, Math.round((kcal - protein * 4) / 9)); }
-  return { kcal, protein, carbs, fat, rateKgWeek };
+  return { kcal, protein, carbs, fat, fiber: fiberTarget(kcal, settings), rateKgWeek };
 }
 
 /** Which targets apply today, and whether a weekly check-in is due. */
 export function currentTargets(model, settings, checkins, today) {
   if (settings.program === 'manual') {
     const t = settings.manual_targets;
-    return { ...t, source: 'manual' };
+    return { ...t, fiber: fiberTarget(t.kcal, settings), source: 'manual' };
   }
   const latest = checkins?.[0];
-  if (latest) return { kcal: latest.kcal, protein: latest.protein, carbs: latest.carbs, fat: latest.fat, source: 'checkin', date: latest.date };
+  if (latest) return { kcal: latest.kcal, protein: latest.protein, carbs: latest.carbs, fat: latest.fat, fiber: fiberTarget(latest.kcal, settings), source: 'checkin', date: latest.date };
   const t = targetsFor(model.expenditure, model.trendKg || 80, settings);
   return { ...t, source: 'estimate' };
 }

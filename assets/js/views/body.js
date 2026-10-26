@@ -417,11 +417,8 @@ async function renderCompare(root) {
   if (aDate && bDate && aDate > bDate) [aDate, bDate] = [bDate, aDate];
   const photoOn = (d) => photos.find(p => p.pose === pose && p.date === d);
 
-  const head = h('div', { class: 'page-head' },
-    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-      h('a', { href: '#/body/photos', class: 'back-link' }, icon('left', 18), 'Photos'),
-      h('h1', null, 'Compare')),
-    aDate && bDate ? h('div', { class: 'actions' }, h('button', { class: 'btn sm', onclick: () => shareComparison(photoOn(aDate), photoOn(bDate)) }, 'Save image')) : null);
+  const head = pageHead('Progress photos', 'Compare',
+    aDate && bDate ? [h('button', { class: 'btn sm', onclick: () => shareComparison(photoOn(aDate), photoOn(bDate)) }, 'Save image')] : null);
   const controls = h('div', { class: 'compare-controls' },
     h('div', { class: 'segmented big', role: 'tablist', 'aria-label': 'Pose' }, POSES.map(([k, l]) => h('button', { role: 'tab', 'aria-selected': String(k === pose), onclick: () => go({ pose: k, a: '', b: '' }) }, l))),
     h('div', { class: 'segmented big', role: 'tablist', 'aria-label': 'View' }, [['split', 'Side by side'], ['slide', 'Slider']].map(([k, l]) => h('button', { role: 'tab', 'aria-selected': String(k === mode), onclick: () => go({ mode: k }) }, l))));
